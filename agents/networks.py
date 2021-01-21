@@ -8,7 +8,6 @@ from torch.nn import LSTM
 import torch.nn.functional as F
 
 from functools import reduce
-import numpy as np
 
 
 class LRQNet(nn.Module):
@@ -76,9 +75,9 @@ class AveragePolicyNet(nn.Module):
 
         layer_dims = [flattened_state_size] + self.mlp_layers + [self.num_actions]
 
-        # with batch normalization layer
-
-        fc = [nn.BatchNorm1d(layer_dims[0])]
+        # with batch normalization layer no need for flatten layer
+        # fc = [nn.BatchNorm1d(layer_dims[0])]
+        fc = []
         # experiment with dropout
 
         # activations on all layers but the last
@@ -128,6 +127,7 @@ class DRQNet(nn.Module):
                                 )
 
         layer_dims = [recurrent_layer_size] + mlp_layers + [num_actions]
+        # fc_layers = [nn.BatchNorm1d(layer_dims[0])]
         fc_layers = []
 
         for i in range(len(layer_dims) - 2):
@@ -154,19 +154,19 @@ class DRQNet(nn.Module):
         self.cell = torch.zeros(self.recurrent_layers_num, size, self.recurrent_layer_size).to(self.device)
 
 
-class CategoricalDQN(nn.Module):
+class CategoricalDQNet(nn.Module):
     """
     actor(policy) model
     """
 
-    def __init__(self, state_shape, num_actions, mlp_layers, num_atoms=51, Vmin=-10., Vmax=10.):
+    def __init__(self, state_shape, num_actions, mlp_layers, num_atoms=51, Vmin=-10., Vmax=10., activation='relu'):
         """Initialize parameters and build model.
                 Params
                     state_size (int): Dimension of each state
                     action_size (int): Dimension of each action
                     mlp_layers(list): list of fully connected layers
         """
-        super(CategoricalDQN, self).__init__()
+        super(CategoricalDQNet, self).__init__()
         self.num_atoms = num_atoms
         self.Vmin = Vmin
         self.Vmax = Vmax
@@ -176,10 +176,13 @@ class CategoricalDQN(nn.Module):
 
         flattened_state_size = reduce(lambda x, y: x * y, state_shape)
         layer_dims = [flattened_state_size] + self.mlp_layers
-        fc = [nn.BatchNorm1d(layer_dims[0])]
+        fc = []
         for i in range(len(layer_dims) - 1):
             fc.append(nn.Linear(layer_dims[i], layer_dims[i + 1], bias=True))
-            fc.append(nn.ReLU())
+            if activation == 'relu':
+                fc.append(nn.ReLU())
+            else:
+                fc.append(nn.Tanh())
         fc.append(nn.Linear(layer_dims[-1], self.num_actions * self.num_atoms, bias=True))
         self.fc_layers = nn.Sequential(*fc)
 
@@ -191,3 +194,32 @@ class CategoricalDQN(nn.Module):
         # [batch_size, num_actions, num_atoms)
         output = F.softmax(x.view(-1, self.num_actions, self.num_atoms), dim=2)
         return output
+
+
+class DuelingDQNet(nn.Module):
+    def __init__(self, state_shape, num_actions,):
+        super(DuelingDQNet, self).__init__()
+        self.state_shape = state_shape
+        self.num_actions = num_actions
+        flattened_state_size = reduce(lambda x, y: x * y, state_shape)
+        self.fc = nn.Linear(flattened_state_size, 512)
+        self.adv_fc1 = nn.Linear(512, 512)
+        self.adv_fc2 = nn.Linear(512, self.num_actions)
+
+        self.value_fc1 = nn.Linear(512, 512)
+        self.value_fc2 = nn.Linear(512, 1)
+
+    def forward(self, state):
+        feature = self.fc(state)
+        advantage = self.adv_fc2(F.relu(self.adv_fc1(F.relu(feature))))
+        value = self.value_fc2(F.relu(self.value_fc1(F.relu(feature))))
+        adv_average = torch.mean(advantage, dim=1, keepdim=True)
+        q_values = advantage + value - adv_average
+
+        return q_values
+
+
+
+
+
+
