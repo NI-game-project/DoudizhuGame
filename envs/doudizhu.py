@@ -40,6 +40,13 @@ class DoudizhuEnv(Env):
                              6. 1st row: represent landlord - 1s if landlord, 0s not
                                 2nd row: os if peasant1, 1s for peasant2
                                 3-5 row: length of the current hand of players, in the order(landlord, peasant1, peasant2)
+            ###########################################################
+                These are the original states
+                         6 : current hand
+                             the union of the other two players' hand
+                             the recent three actions
+                             the union of all played cards
+            ###########################################################
 
         '''
 
