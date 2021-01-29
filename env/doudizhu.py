@@ -1,6 +1,5 @@
 import numpy as np
-
-from env import Env
+from envs.env import Env
 
 
 class DoudizhuEnv(Env):
@@ -21,33 +20,55 @@ class DoudizhuEnv(Env):
         self._CARD_RANK_STR = CARD_RANK_STR
         self._ACTION_LIST = ACTION_LIST
         self._ACTION_SPACE = ACTION_SPACE
-        
+
         self.name = 'doudizhu'
         self.game = Game()
         super().__init__(config)
         self.state_shape = [6, 5, 15]
 
     def _extract_state(self, state):
+        ###### only changed this function and added get_hand_length func in doudizhu.py
+        ###### the rest is the same
         ''' Encode state
         Args:
             state (dict): dict of original state
         Returns:
             numpy array: 6*5*15 array
-                         6 : current hand
-                             the union of the other two players' hand
-                             the recent three actions
-                             the union of all played cards
+                         6 : 1. current hand
+                             2. the union of the other two players' hand
+                             3,4,5. the recent three actions taken by the current player
+                             6. 1st row: represent landlord - 1s if landlord, 0s not
+                                2nd row: os if peasant1, 1s for peasant2
+                                3-5 row: length of the current hand of players, in the order(landlord, peasant1, peasant2)
+
         '''
+
         obs = np.zeros((6, 5, 15), dtype=int)
+        ll_hand_length, p1_hand_length, p2_hand_length = self.get_hand_length(state)
+        # calculate the length of the each player's hand using 'trace' of the state_obs
         for index in range(6):
             obs[index][0] = np.ones(15, dtype=int)
         self._encode_cards(obs[0], state['current_hand'])
         self._encode_cards(obs[1], state['others_hand'])
-        for i, action in enumerate(state['trace'][-3:]):
+        for i, action in enumerate(state['trace'][-9::3]):
             if action[1] != 'pass':
                 self._encode_cards(obs[4 - i], action[1])
-        if state['played_cards'] is not None:
-            self._encode_cards(obs[5], state['played_cards'])
+        if state['self'] == 0:
+            obs[5][1] = np.zeros(15, dtype=int)
+        elif state['self'] == 1:
+            obs[5][0] = np.zeros(15, dtype=int)
+            obs[5][0] = np.zeros(15, dtype=int)
+        elif state['self'] == 2:
+            obs[5][0] = np.zeros(15, dtype=int)
+            obs[5][1] = np.ones(15, dtype=int)
+        for index in range(3):
+            obs[5][index + 2] = np.zeros(15, dtype=int)
+        for i in range(ll_hand_length):
+            obs[5][2][i] = 1
+        for i in range(p1_hand_length):
+            obs[5][3][i] = 1
+        for i in range(p2_hand_length):
+            obs[5][4][i] = 1
 
         extracted_state = {'obs': obs, 'legal_actions': self._get_legal_actions()}
         if self.allow_raw_data:
@@ -106,7 +127,7 @@ class DoudizhuEnv(Env):
             for action in self.game.judger.playable_cards[player_id]:
                 if kicker in action:
                     score += 1
-            kicker_scores.append(score+self._CARD_RANK_STR.index(kicker[0]))
+            kicker_scores.append(score + self._CARD_RANK_STR.index(kicker[0]))
         min_index = 0
         min_score = kicker_scores[0]
         for index, score in enumerate(kicker_scores):
@@ -147,16 +168,32 @@ class DoudizhuEnv(Env):
         state['current_player'] = self.game.round.current_player
         state['legal_actions'] = self.game.state['actions']
         return state
-'''
-    def _load_model(self):
-        # Load pretrained/rule model
 
-        Returns:
-            model (Model): A Model object
-        
-        import models
-        return models.load('DouDizhuRuleModelV1')
-'''
+    def get_hand_length(self, state):
+        # calculate the length of each player's current hand using trace
+        # just for encoding the state, kind of a naive approach,
+        # but we don't need to mess up with the state of different player or env.py
+
+        landlord_hand_length = 0
+        p1_hand_length = 0
+        p2_hand_length = 0
+        for action in (state['trace']):
+            if action[0] == 0:
+                if action[1] != 'pass':
+                    landlord_hand_length += len(action[1])
+            elif action[0] == 1:
+                if action[1] != 'pass':
+                    p1_hand_length += len(action[1])
+            elif action[0] == 2:
+                if action[1] != 'pass':
+                    p2_hand_length += len(action[1])
+
+        # if the hand length is larger than 15, set it to 15 to match the shape of the state, since 15 or larger than
+        # 15 won't really make a difference.
+        landlord_hand_length = min((20 - landlord_hand_length), 15)
+        p1_hand_length = min((17 - p1_hand_length), 15)
+        p2_hand_length = min((17 - p2_hand_length), 15)
+        return landlord_hand_length, p1_hand_length, p2_hand_length
 
 
 

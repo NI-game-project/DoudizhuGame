@@ -23,7 +23,7 @@ class Logger(object):
 
         self.txt_file = open(self.txt_path, 'w')
         self.csv_file = open(self.csv_path, 'w')
-        fieldnames = ['timestep', 'reward']
+        fieldnames = ['iteration', 'reward', 'loss', 'state', 'actions', 'predictions', 'q_values']
         self.writer = csv.DictWriter(self.csv_file, fieldnames=fieldnames)
         self.writer.writeheader()
 
@@ -36,17 +36,33 @@ class Logger(object):
         self.txt_file.flush()
         print(text)
 
-    def log_performance(self, timestep, reward):
+    def log_performance(self, iteration, reward, loss=None, states=None, actions=None, predictions=None, q_values=None):
         ''' Log a point in the curve
         Args:
-            timestep (int): the timestep of the current point
+            iteration (int): the iteration of the current point
             reward (float): the reward of the current point
+            loss(float): the loss of the current point
+            states(str): the raw_obs of the current point
+            actions(int): integer of actions taken by the agent
+            predictions(int): predicted action by the network
         '''
-        self.writer.writerow({'timestep': timestep, 'reward': reward})
+        self.writer.writerow({'iteration': iteration,
+                              'reward': reward,
+                              'loss': loss,
+                              'state': states,
+                              'actions': actions,
+                              'predictions': predictions,
+                              'q_values': q_values},
+                             )
         print('')
         self.log('----------------------------------------')
-        self.log('  timestep     |  ' + str(timestep))
+        self.log('  iteration    |  ' + str(iteration))
         self.log('  reward       |  ' + str(reward))
+        self.log('  loss         |  ' + str(loss))
+        self.log('  state        |  ' + str(states))
+        self.log('  actions      |  ' + str(actions))
+        self.log('  predictions  |  ' + str(predictions))
+        self.log('  q_values     |  ' + str(q_values))
         self.log('----------------------------------------')
 
     def plot(self, algorithm):
@@ -71,11 +87,11 @@ def plot(csv_path, save_path, algorithm):
         xs = []
         ys = []
         for row in reader:
-            xs.append(int(row['timestep']))
+            xs.append(int(row['iteration']))
             ys.append(float(row['reward']))
         fig, ax = plt.subplots()
         ax.plot(xs, ys, label=algorithm)
-        ax.set(xlabel='timestep', ylabel='reward')
+        ax.set(xlabel='iteration', ylabel='reward')
         ax.legend()
         ax.grid()
 
