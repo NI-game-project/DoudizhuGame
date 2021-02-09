@@ -238,7 +238,8 @@ class DQNAgent:
             next_q_state_values = self.target_net(next_states)
             next_argmax_actions = next_q_values.max(1)[1]
             next_q_values = next_q_state_values.gather(1, next_argmax_actions.unsqueeze(1)).squeeze(1)
-            next_q_values = self.softmax(next_q_values)
+            # normalize next_q_values between the range (0, 1) before passing it into the bellman equation
+            next_q_values = torch.sigmoid(next_q_values)
 
         expected_q_values = rewards + self.gamma * dones * next_q_values
         expected_q_values.detach()
@@ -251,7 +252,7 @@ class DQNAgent:
         loss = self.criterion(q_values, expected_q_values)
 
         loss.backward()
-        nn.utils.clip_grad_norm_(self.q_net.parameters(), max_norm=2)
+        nn.utils.clip_grad_norm_(self.q_net.parameters(), max_norm=1)
         # nn.utils.clip_grad_value_(self.q_net.parameters(), clip_value=0.5)
         self.optim.step()
         self.q_net.eval()
