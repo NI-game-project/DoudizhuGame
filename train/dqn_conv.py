@@ -38,7 +38,7 @@ for i in range(env.player_num):
     dqn_agents.append(DQNAgent(num_actions=env.action_num,
                                state_shape=env.state_shape,
                                lr=.000001,
-                               use_conv=False,
+                               use_conv=True,
                                dueling=False,
                                soft_update=True))
 
@@ -50,13 +50,13 @@ eval_every = 500
 eval_num = 1000
 episode_num = 100_000
 
-log_dir = './experiments/dqn/'
+log_dir = './experiments/dqn_conv/'
 logger = Logger(log_dir)
 
-save_dir = './experiments/dqn/models'
+save_dir = './experiments/dqn_conv/models'
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
-save_dir_best = './experiments/dqn/best_models'
+save_dir_best = './experiments/dqn_conv/best_models'
 if not os.path.exists(save_dir_best):
     os.makedirs(save_dir_best)
 
@@ -82,9 +82,9 @@ for episode in range(episode_num):
         print(f'\nepisode: {episode}, result: {result}')
         if result[0] > best_result:
             best_result = result[0]
-            dqn_agents[0].save_state_dict(os.path.join(save_dir_best, 'dqn_agent_landlord_best.pt'))
-            dqn_agents[1].save_state_dict(os.path.join(save_dir_best, 'dqn_agent_downpeasant_best.pt'))
-            dqn_agents[2].save_state_dict(os.path.join(save_dir_best, 'dqn_agent_uppeasant_best.pt'))
+            dqn_agents[0].save_state_dict(os.path.join(save_dir_best, 'dqn_conv_agent_landlord_best.pt'))
+            dqn_agents[1].save_state_dict(os.path.join(save_dir_best, 'dqn_conv_agent_downpeasant_best.pt'))
+            dqn_agents[2].save_state_dict(os.path.join(save_dir_best, 'dqn_conv_agent_uppeasant_best.pt'))
 
 end_time = datetime.now().strftime("%H:%M:%S")
 print("End Time =", end_time)
@@ -97,7 +97,7 @@ logger.close_files()
 logger.plot('dqn.vs.rule')
 
 # Save model
-dqn_agents[0].save_state_dict(os.path.join(save_dir, 'dqn_agent_landlord.pt'))
-dqn_agents[1].save_state_dict(os.path.join(save_dir, 'dqn_agent_downpeasant.pt'))
-dqn_agents[2].save_state_dict(os.path.join(save_dir, 'dqn_agent_uppeasant.pt'))
+dqn_agents[0].save_state_dict(os.path.join(save_dir, 'dqn_conv_agent_landlord.pt'))
+dqn_agents[1].save_state_dict(os.path.join(save_dir, 'dqn_conv_agent_downpeasant.pt'))
+dqn_agents[2].save_state_dict(os.path.join(save_dir, 'dqn_conv_agent_uppeasant.pt'))
 

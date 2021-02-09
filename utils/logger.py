@@ -23,7 +23,8 @@ class Logger(object):
 
         self.txt_file = open(self.txt_path, 'w')
         self.csv_file = open(self.csv_path, 'w')
-        fieldnames = ['iteration', 'reward', 'loss', 'state', 'actions', 'predictions', 'q_values']
+        fieldnames = ['iteration', 'reward', 'loss', 'state', 'actions', 'predictions',
+                      'q_values', 'current_q_values', 'expected_q_values']
         self.writer = csv.DictWriter(self.csv_file, fieldnames=fieldnames)
         self.writer.writeheader()
 
@@ -36,7 +37,23 @@ class Logger(object):
         self.txt_file.flush()
         print(text)
 
-    def log_performance(self, iteration, reward, loss=None, states=None, actions=None, predictions=None, q_values=None):
+    """
+    def log_performance(self, timestep, reward):
+        ''' Log a point in the curve
+        Args:
+            timestep (int): the timestep of the current point
+            reward (float): the reward of the current point
+        '''
+        self.writer.writerow({'timestep': timestep, 'reward': reward})
+        print('')
+        self.log('----------------------------------------')
+        self.log('  timestep     |  ' + str(timestep))
+        self.log('  reward       |  ' + str(reward))
+        self.log('----------------------------------------')
+    """
+
+    def log_performance(self, iteration, reward, loss=None, states=None, actions=None, predictions=None, q_values=None, current_q=None,
+                        expected_q=None):
         ''' Log a point in the curve
         Args:
             iteration (int): the iteration of the current point
@@ -52,7 +69,10 @@ class Logger(object):
                               'state': states,
                               'actions': actions,
                               'predictions': predictions,
-                              'q_values': q_values},
+                              'q_values': q_values,
+                              'current_q_values': current_q,
+                              'expected_q_values': expected_q},
+
                              )
         print('')
         self.log('----------------------------------------')
@@ -63,6 +83,8 @@ class Logger(object):
         self.log('  actions      |  ' + str(actions))
         self.log('  predictions  |  ' + str(predictions))
         self.log('  q_values     |  ' + str(q_values))
+        self.log('  current_q_values   |  ' + str(current_q))
+        self.log('  expected_q_values  |  ' + str(expected_q))
         self.log('----------------------------------------')
 
     def plot(self, algorithm):

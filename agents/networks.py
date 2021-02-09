@@ -4,6 +4,7 @@ from torch.nn import LSTM
 import torch.nn.functional as F
 
 from functools import reduce
+import numpy as np
 
 
 class Flatten(nn.Module):
@@ -16,81 +17,56 @@ class cReLU(nn.Module):
         return torch.cat((F.relu(x), F.relu(-x)), dim=1)
 
 
-class DQNet(nn.Module):
-    """
-    Fully connected Q network in PyTorch
-    Parameters:
-        state_shape (list of int) : shape of state - (6, 5, 15)
-        num_actions (int) : number of possible actions this agent can take - 309
-        mlp_layers (list) : list of hidden layer sizes to use in fully connected network
-        activation (str) : activation functions: 'tanh' or 'relu'
-    """
+class NoisyLinear(nn.Module):
+    def __init__(self, input_dim, output_dim, std_init=0.5):
+        super(NoisyLinear, self).__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.std_init = std_init
 
-    def __init__(self, state_shape, num_actions, mlp_layers, activation='relu'):
-        super(DQNet, self).__init__()
+        self.weight_mu = nn.Parameter(torch.FloatTensor(self.output_dim, self.input_dim))
+        self.weight_sigma = nn.Parameter(torch.FloatTensor(self.output_dim, self.input_dim))
+        self.register_buffer('weight_epsilon', torch.FloatTensor(self.output_dim, self.input_dim))
 
-        flattened_state_size = reduce(lambda x, y: x * y, state_shape)
+        self.bias_mu = nn.Parameter(torch.FloatTensor(self.output_dim))
+        self.bias_sigma = nn.Parameter(torch.FloatTensor(self.output_dim))
+        self.register_buffer('bias_epsilon', torch.FloatTensor(self.output_dim))
 
-        layer_dims = [flattened_state_size] + mlp_layers + [num_actions]
+        self.reset_parameter()
+        self.reset_noise()
 
-        # with batch normalization layer no need for flatten layer
-        #fc = [nn.BatchNorm1d(layer_dims[0])]
-        fc = []
-        # experiment with dropout
+    def forward(self, x):
+        if self.training:
+            weight = self.weight_mu + self.weight_sigma.mul(self.weight_epsilon)
+            bias = self.bias_mu + self.bias_sigma.mul(self.bias_epsilon)
+        else:
+            weight = self.weight_mu
+            bias = self.bias_mu
+        return F.linear(x, weight, bias)
 
-        # activations on all layers but the last
-        for i in range(len(layer_dims) - 2):
-            fc.append(nn.Linear(layer_dims[i], layer_dims[i + 1], bias=True))
-            if activation == 'relu':
-                fc.append(nn.ReLU())
-            else:
-                fc.append(nn.Tanh())
+    def reset_parameter(self):
+        mu_range = 1 / np.sqrt(self.input_dim)
 
-        fc.append(nn.Linear(layer_dims[-2], layer_dims[-1], bias=True))
-        self.layers = nn.Sequential(*fc)
+        self.weight_mu.detach().uniform_(-mu_range, mu_range)
+        self.bias_mu.detach().uniform_(-mu_range, mu_range)
 
-    def forward(self, state):
-        state = torch.flatten(state, start_dim=1)
-        q_values = self.layers(state)
-        return q_values
+        self.weight_sigma.detach().fill_(self.std_init / np.sqrt(self.input_dim))
+        self.bias_sigma.detach().fill_(self.std_init / np.sqrt(self.input_dim))
 
+    def _scale_noise(self, size):
+        noise = torch.randn(size)
+        noise = noise.sign().mul(noise.abs().sqrt())
+        return noise
 
-class AveragePolicyNet(nn.Module):
-    def __init__(self, state_shape, num_actions, mlp_layers, activation='relu'):
-        super(AveragePolicyNet, self).__init__()
-        self.state_shape = state_shape
-        self.num_actions = num_actions
-        self.mlp_layers = mlp_layers
+    def reset_noise(self):
+        epsilon_in = self._scale_noise(self.input_dim)
+        epsilon_out = self._scale_noise(self.output_dim)
 
-        flattened_state_size = reduce(lambda x, y: x * y, state_shape)
-
-        layer_dims = [flattened_state_size] + self.mlp_layers + [self.num_actions]
-
-        # with batch normalization layer no need for flatten layer
-        fc = [nn.BatchNorm1d(layer_dims[0])]
-        # fc = []
-        # experiment with dropout
-
-        # activations on all layers but the last
-        for i in range(len(layer_dims) - 2):
-            fc.append(nn.Linear(layer_dims[i], layer_dims[i + 1]))
-            if activation == 'relu':
-                fc.append(nn.ReLU())
-            else:
-                fc.append(nn.Tanh())
-
-        fc.append(nn.Linear(layer_dims[-2], layer_dims[-1]))
-        self.layers = nn.Sequential(*fc)
-
-    def forward(self, state):
-        state = torch.flatten(state, start_dim=1)
-        logits = self.layers(state)
-        # q_values = F.log_softmax(logits, dim=-1) # this one is used in rlcard
-        q_values = F.softmax(logits, dim=-1)
-        return q_values
+        self.weight_epsilon.copy_(epsilon_out.ger(epsilon_in))
+        self.bias_epsilon.copy_(self._scale_noise(self.output_dim))
 
 
-class DRQNet(nn.Module):
+class DRQN(nn.Module):
     """
     Recurrent q network in pytorch
     parameters:
@@ -106,7 +82,7 @@ class DRQNet(nn.Module):
     def __init__(self, state_shape, num_actions,
                  recurrent_layer_size, recurrent_layers_num,
                  mlp_layers, activation='relu'):
-        super(DRQNet, self).__init__()
+        super(DRQN, self).__init__()
 
         # initialize lstm layers
         self.flattened_state_size = reduce(lambda x, y: x * y, state_shape)
@@ -188,46 +164,55 @@ class CategoricalDQNet(nn.Module):
         return output
 
 
-class DuelingDQNet(nn.Module):
-    # fully connected DuelingDQNet
-    def __init__(self, state_shape, num_actions,):
-        super(DuelingDQNet, self).__init__()
-        self.state_shape = state_shape
-        self.num_actions = num_actions
-        flattened_state_size = reduce(lambda x, y: x * y, state_shape)
-        self.fc1 = nn.Linear(flattened_state_size, 512)
-        self.fc2 = nn.Linear(512, 512)
-        self.adv_fc1 = nn.Linear(512, 512)
-        self.adv_fc2 = nn.Linear(512, self.num_actions)
-
-        self.value_fc1 = nn.Linear(512, 512)
-        self.value_fc2 = nn.Linear(512, 1)
-
-    def forward(self, state):
-        state = torch.flatten(state, start_dim=1)
-        # feature = self.fc1(state)
-        feature = self.fc2(F.relu(self.fc1(state)))
-        advantage = self.adv_fc2(F.relu(self.adv_fc1(F.relu(feature))))
-        value = self.value_fc2(F.relu(self.value_fc1(F.relu(feature))))
-        adv_average = torch.mean(advantage, dim=1, keepdim=True)
-        q_values = advantage + value - adv_average
-
-        return q_values
-
-
-class DQNConv(nn.Module):
-    def __init__(self, state_shape, num_actions, conv=True):
-        super(DQNConv, self).__init__()
+class DQN(nn.Module):
+    def __init__(self, state_shape, num_actions, use_conv=False):
+        super(DQN, self).__init__()
 
         self.flatten = Flatten()
         self.state_shape = state_shape
         self.num_actions = num_actions
-        if conv:
-            self.features = nn.Sequential(
-                nn.Conv2d(self.state_shape[0], 10, kernel_size=5, stride=1),
-                cReLU(),
-            )
+        self.use_conv = use_conv
+        if self.use_conv:
 
+            self.features = nn.Sequential(
+                nn.Conv2d(self.state_shape[0], 32, kernel_size=5, stride=1),
+                nn.BatchNorm2d(32),
+                #cReLU(),
+                nn.LeakyReLU(),
+                nn.Conv2d(32, 64, kernel_size=1, stride=1),
+                nn.BatchNorm2d(64),
+                nn.LeakyReLU(),
+            )
+            """
+            conv1 = nn.Conv2d(self.state_shape[0], 32, kernel_size=5, stride=4, padding=2)
+            torch.nn.init.xavier_uniform_(conv1.weight)
+            torch.nn.init.constant_(conv1.bias, 0.1)
+            conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=2)
+            torch.nn.init.xavier_uniform_(conv2.weight)
+            torch.nn.init.constant_(conv2.bias, 0.1)
+            conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=2)
+            torch.nn.init.xavier_uniform_(conv3.weight)
+            torch.nn.init.constant_(conv3.bias, 0.1)
+            conv4 = nn.Conv2d(64, 64, kernel_size=2, stride=1, padding=2)
+            torch.nn.init.xavier_uniform_(conv4.weight)
+            torch.nn.init.constant_(conv4.bias, 0.1)
+            self.features = nn.Sequential(
+                conv1,
+                nn.BatchNorm2d(32),
+                nn.ReLU(),
+                conv2,
+                nn.BatchNorm2d(64),
+                nn.ReLU(),
+                #nn.MaxPool2d(kernel_size=2, stride=2),
+                conv3,
+                nn.BatchNorm2d(64),
+                nn.ReLU(),
+                #conv4,
+                #nn.BatchNorm2d(64),
+                #nn.ReLU(),
+                #nn.MaxPool2d(kernel_size=2, stride=2)
+            )
+            """
             self.fc = nn.Sequential(
                 nn.Linear(self._feature_size(), 512),
                 nn.ReLU(),
@@ -238,7 +223,9 @@ class DQNConv(nn.Module):
         else:
             flattened_state_shape = reduce(lambda x, y: x * y, self.state_shape)
             self.fc = nn.Sequential(
-                nn.Linear(flattened_state_shape, 512),
+                nn.Linear(flattened_state_shape, 1024),
+                nn.ReLU(),
+                nn.Linear(1024, 512),
                 nn.ReLU(),
                 nn.Linear(512, 512),
                 nn.ReLU(),
@@ -246,59 +233,50 @@ class DQNConv(nn.Module):
             )
 
     def forward(self, state):
-        x = self.features(state)
-        x = self.flatten(x)
-        x = self.fc(x)
-        return x
+        if self.use_conv:
+            x = self.features(state)
+            x = self.flatten(x)
+            q_values = self.fc(x)
+
+        else:
+            x = torch.flatten(state, start_dim=1)
+            q_values = self.fc(x)
+
+        return q_values
 
     def _feature_size(self):
         return self.features(torch.zeros(1, *self.state_shape)).view(1, -1).size(1)
 
 
-class AveragePolicyConv(DQNConv):
-    def __init__(self, state_shape, num_actions):
-        super(AveragePolicyConv, self).__init__(state_shape, num_actions)
-        self.state_shape = state_shape
-        self.num_actions = num_actions
-
-        self.fc = nn.Sequential(
-            nn.Linear(self._feature_size(), 32),
-            nn.ReLU(),
-            nn.Linear(32, self.num_actions),
-            nn.Softmax(dim=1)
-        )
-
-    def act(self, state):
-        with torch.no_grad():
-            state = state.unsqueeze(0)
-            distribution = self.forward(state)
-            action = distribution.multinomial(1).item()
-        return distribution, action
-
-
-class DuelingDQNConv(nn.Module):
-    def __init__(self, state_shape, num_actions):
-        super(DuelingDQNConv, self).__init__()
+class DuelingDQN(nn.Module):
+    def __init__(self, state_shape, num_actions, use_conv):
+        super(DuelingDQN, self).__init__()
 
         self.flatten = Flatten()
         self.state_shape = state_shape
         self.num_actions = num_actions
+        self.use_conv = use_conv
 
-        self.features = nn.Sequential(
-            nn.Conv2d(self.state_shape[0], 10, kernel_size=5, stride=1),
-            cReLU(),
-            #nn.Conv2d(self.state_shape[0], 8, kernel_size=3, stride=1),
-            #cReLU(),
-            #nn.Conv2d(16, 8, kernel_size=3, stride=1),
-            #cReLU(),
+        if self.use_conv:
+
+            self.features = nn.Sequential(
+                nn.Conv2d(self.state_shape[0], 32, kernel_size=5, stride=1),
+                cReLU(),
+                nn.Conv2d(64, 32, kernel_size=1, stride=1),
+                cReLU(),
+                )
+
+            self.fc = nn.Sequential(
+                nn.Linear(self._feature_size(), 512),
+                nn.ReLU(),
+            )
+        else:
+            flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
+            self.fc = nn.Sequential(
+                nn.Linear(flattened_state_shape, 512),
+                nn.ReLU(),
             )
 
-        self.fc = nn.Sequential(
-            nn.Linear(self._feature_size(), 512),
-            nn.ReLU(),
-            #nn.Linear(512, 512),
-            #nn.ReLU()
-        )
         self.advantage = nn.Sequential(
             nn.Linear(512, 512),
             nn.ReLU(),
@@ -311,15 +289,137 @@ class DuelingDQNConv(nn.Module):
         )
 
     def forward(self, state):
-        x = self.features(state)
-        x = self.flatten(x)
+        if self.use_conv:
+            x = self.features(state)
+            x = self.flatten(x)
+        else:
+            x = torch.flatten(state, start_dim=1)
         x = self.fc(x)
         advantage = self.advantage(x)
         value = self.value(x)
         adv_average = torch.mean(advantage, dim=1, keepdim=True)
-        logits = advantage + value - adv_average
-        q_values = F.softmax(logits, dim=-1)
+        q_values = advantage + value - adv_average
+
         return q_values
 
     def _feature_size(self):
         return self.features(torch.zeros(1, *self.state_shape)).view(1, -1).size(1)
+
+
+class DQNNoisy(nn.Module):
+    def __init__(self, state_shape, num_actions):
+        super(DQNNoisy, self).__init__()
+        self.state_shape = state_shape
+        self.num_actions = num_actions
+        flattened_state_shape = reduce(lambda x, y: x * y, self.state_shape)
+        self.noisy1 = NoisyLinear(512, 512)
+        self.noisy2 = NoisyLinear(512, self.num_actions)
+        self.fc = nn.Sequential(
+            nn.Linear(flattened_state_shape, 512),
+            nn.ReLU(),
+            self.noisy1,
+            nn.ReLU(),
+            self.noisy2)
+
+    def forward(self, state):
+        state = torch.flatten(state, start_dim=1)
+        x = self.fc(state)
+        return x
+
+    def reset_noise(self):
+        self.noisy1.reset_noise()
+        self.noisy2.reset_noise()
+
+
+class AveragePolicyNet(DQN):
+    def __init__(self, state_shape, num_actions, use_conv=True):
+        super(AveragePolicyNet, self).__init__(state_shape, num_actions)
+        self.state_shape = state_shape
+        self.num_actions = num_actions
+        self.use_conv = use_conv
+
+        if self.use_conv:
+            self.fc = nn.Sequential(
+                nn.Linear(self._feature_size(), 512),
+                nn.ReLU(),
+                nn.Linear(512, 512),
+                nn.ReLU(),
+                nn.Linear(512, self.num_actions),
+                nn.Softmax(dim=-1)
+            )
+        else:
+            flattened_state_shape = reduce(lambda x, y: x * y, self.state_shape)
+            self.fc = nn.Sequential(
+                nn.Linear(flattened_state_shape, 512),
+                nn.ReLU(),
+                nn.Linear(512, 512),
+                nn.ReLU(),
+                nn.Linear(512, self.num_actions),
+                nn.Softmax(dim=-1)
+            )
+
+    """
+    def act(self, state):
+        with torch.no_grad():
+            state = state.unsqueeze(0)
+            distribution = self.forward(state)
+            action = distribution.multinomial(1).item()
+        return distribution, action
+    """
+
+"""
+dqn = DQNet((6,5,15), 309, [512,512,512])
+state = torch.randn(1,6,5,15)
+q = dqn(state)
+print(q)
+dqn1 = DuelingDQNet((6,5,15), 309)
+q1 = dqn1(state)
+print(q1)
+
+dqn = DQNConv((6,5,15), 309)
+print(dqn)
+av = AveragePolicyConv((6,5,15), 309)
+print(av)
+for para in dqn.parameters():
+    print(para.shape)
+state = torch.randn(6,5,15)
+q, a = dqn.act(state, epsilon=1)
+print(q.argmax(1), a)
+d, q_ = av.act(state)
+print(d.argmax(1), q_)
+
+dqn = DQNConv((6,5,15), 309)
+print(dqn)
+for para in dqn.parameters():
+    print(para.shape)
+
+
+dqn = DQNNoisy((6,5,15), 309)
+print(dqn)
+for para in dqn.parameters():
+    print(para.shape)
+state = torch.randn(1,6,5,15)
+q= dqn(state)
+print(q.sum())
+
+dqn = DuelingDQNConv((6,5,15), 309)
+print(dqn)
+for para in dqn.parameters():
+    print(para.shape)
+state = torch.randn(1,6,5,15)
+l= dqn(state)
+print(l)
+
+dqn = AveragePolicyConv((6,5,15), 309, use_conv=False)
+print(dqn)
+for para in dqn.parameters():
+    print(para.shape)
+state = torch.randn(1,6,5,15)
+l= dqn(state)
+print(l)
+
+dqn = DQN((8,5,15), 309,use_conv=True)
+print(dqn)
+for para in dqn.parameters():
+    print(para.shape)
+"""

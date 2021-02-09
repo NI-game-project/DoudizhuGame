@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from agents.networks import DQNet, DuelingDQNet, DQNConv, DuelingDQNConv
+from agents.networks import DQN, DuelingDQN
 from utils_global import remove_illegal
 from agents.buffers import ReplayMemoryBuffer_
 
@@ -11,11 +11,9 @@ class DQNAgent:
     Parameters:
         num_actions (int) : how many possible actions
         state_shape (list) : tensor shape of state
-        hidden_layers (list) : hidden layer size
         lr (float) : learning rate to use for training q_net
         batch_size (int) : batch sizes to use when training networks
         replay_memory_size (int) : max number of experiences to store in memory buffer
-        update_target_every (int) : how often to update parameters of the target network
         epsilon_decay_steps (int) : how often should we decay epsilon value
         gamma (float) : discount parameter
         device (torch.device) : device to put models on
@@ -24,18 +22,21 @@ class DQNAgent:
     def __init__(self,
                  state_shape,
                  num_actions,
-                 hidden_layers=None,
                  lr=0.0001,
                  gamma=0.99,
                  epsilons=None,
-                 epsilon_decay_steps=20000,
+                 epsilon_decay_steps=40000,
                  batch_size=32,
                  train_every=1,
                  replay_memory_size=int(1e5),
-                 replay_memory_init_size=500,
-                 update_target_every=1000,
-                 dueling=True,
-                 conv=True,
+                 replay_memory_init_size=100,
+                 soft_update=True,
+                 # for soft_update
+                 soft_update_target_every=10,
+                 # for hard_update
+                 hard_update_target_every=1000,
+                 dueling=False,
+                 use_conv=False,
                  device=None, ):
 
         if device is None:
@@ -43,19 +44,22 @@ class DQNAgent:
         else:
             self.device = device
         self.use_raw = False
-        self.state_shape = state_shape  # (6,5,15)
+        self.state_shape = state_shape  # (8,5,15)
         self.num_actions = num_actions  # 309
-        self.hidden_layers = hidden_layers
         self.lr = lr
         self.gamma = gamma
+        self.soft_update = soft_update
+        self.soft_update_every = soft_update_target_every
+        self.hard_update_every = hard_update_target_every
+        self.tau = 1e-3
         self.epsilon_decay_steps = epsilon_decay_steps
-        self.epsilons = np.linspace(2.0, 0.1, epsilon_decay_steps)
+        self.epsilons = np.linspace(1.0, 0.1, epsilon_decay_steps)
+        self.epsilon = 0
 
         self.batch_size = batch_size
         self.train_every = train_every
         self.replay_memory_size = replay_memory_size
         self.replay_memory_init_size = replay_memory_init_size
-        self.update_target_every = update_target_every
         self.device = device
         self.use_raw = False
 
@@ -63,26 +67,19 @@ class DQNAgent:
         self.timestep = 0
 
         # initialize q and target networks
-        if dueling and conv:
-            self.q_net = DuelingDQNConv(state_shape=state_shape, num_actions=num_actions).to(device)
-            self.target_net = DuelingDQNConv(state_shape=state_shape, num_actions=num_actions).to(device)
-        elif not dueling and conv:
-            self.q_net = DQNConv(state_shape=state_shape,
-                                 num_actions=num_actions, ).to(device)
-            self.target_net = DQNConv(state_shape=state_shape,
-                                      num_actions=num_actions, ).to(device)
-        elif not dueling and not conv:
-            self.q_net = DQNet(state_shape=state_shape,
-                               num_actions=num_actions,
-                               mlp_layers=[512, 512, 512]).to(device)
-            self.target_net = DQNet(state_shape=state_shape,
-                                    num_actions=num_actions,
-                                    mlp_layers=[512, 512, 512]).to(device)
-        else:
-            self.q_net = DuelingDQNet(state_shape=state_shape,
-                                      num_actions=num_actions, ).to(device)
-            self.target_net = DuelingDQNet(state_shape=state_shape,
-                                           num_actions=num_actions, ).to(device)
+        if dueling and use_conv:
+            self.q_net = DuelingDQN(state_shape=state_shape, num_actions=num_actions, use_conv=True).to(device)
+            self.target_net = DuelingDQN(state_shape=state_shape, num_actions=num_actions, use_conv=True).to(device)
+        elif dueling and not use_conv:
+            self.q_net = DuelingDQN(state_shape=state_shape, num_actions=num_actions, use_conv=False).to(device)
+            self.target_net = DuelingDQN(state_shape=state_shape, num_actions=num_actions, use_conv=False).to(device)
+        elif not dueling and use_conv:
+            self.q_net = DQN(state_shape=state_shape, num_actions=num_actions, use_conv=True).to(device)
+            self.target_net = DQN(state_shape=state_shape, num_actions=num_actions, use_conv=True).to(device)
+        elif not dueling and not use_conv:
+            self.q_net = DQN(state_shape=state_shape, num_actions=num_actions, use_conv=False).to(device)
+            self.target_net = DQN(state_shape=state_shape, num_actions=num_actions, use_conv=False).to(device)
+
         self.q_net.eval()
         self.target_net.eval()
 
@@ -90,9 +87,10 @@ class DQNAgent:
         self.optim = torch.optim.Adam(self.q_net.parameters(), lr=lr)
 
         # initialize loss func(mse_loss) for network
-        self.criterion = nn.MSELoss(reduction='mean')
+        # self.criterion = nn.MSELoss(reduction='mean')
+        self.criterion = nn.SmoothL1Loss(reduction='mean')
 
-        self.softmax = torch.nn.Softmax(dim=1)
+        self.softmax = torch.nn.Softmax(dim=-1)
 
         # initialize memory buffer
         self.memory_buffer = ReplayMemoryBuffer_(replay_memory_size, batch_size)
@@ -102,6 +100,8 @@ class DQNAgent:
         self.actions = []
         self.predictions = []
         self.q_values = 0
+        self.current_q_values = 0
+        self.expected_q_values = 0
 
     def step(self, state):
         """
@@ -117,10 +117,10 @@ class DQNAgent:
                 action (int) : integer representing action id
         """
 
-        epsilon = self.epsilons[min(self.timestep, self.epsilon_decay_steps - 1)]
+        self.epsilon = self.epsilons[min(self.timestep, self.epsilon_decay_steps - 1)]
         legal_actions = state['legal_actions']
         max_action = self.predict(state)[1]
-        if np.random.uniform() < epsilon:
+        if np.random.uniform() < self.epsilon:
             probs = remove_illegal(np.ones(self.num_actions), legal_actions)
             action = np.random.choice(self.num_actions, p=probs)
         else:
@@ -158,9 +158,9 @@ class DQNAgent:
             legal_actions = state['legal_actions']
             q_values = self.q_net(state_obs)[0].cpu().detach().numpy()
             # calculate a softmax distribution over the q_values for all actions
-            # softmax_q_vals = self.softmax(self.q_net(state_obs))[0].cpu().detach().numpy()
-            predicted_action = np.argmax(q_values)
-            probs = remove_illegal(q_values, legal_actions)
+            softmax_q_vals = self.softmax(self.q_net(state_obs))[0].cpu().detach().numpy()
+            predicted_action = np.argmax(softmax_q_vals)
+            probs = remove_illegal(softmax_q_vals, legal_actions)
             max_action = np.argmax(probs)
 
             self.q_values = q_values
@@ -190,8 +190,14 @@ class DQNAgent:
             print(f'\rstep: {self.timestep}, loss on batch: {batch_loss}', end='')
 
         # update the parameters of the target network
-        if self.timestep % self.update_target_every == 0:
-            self.target_net.load_state_dict(self.q_net.state_dict())
+        if self.soft_update:
+            if self.timestep % self.soft_update_every == 0:
+                for target_param, param in zip(self.target_net.parameters(), self.q_net.parameters()):
+                    target_param.data.copy_(self.tau * param + (1 - self.tau) * target_param)
+        else:
+            if self.timestep % self.hard_update_every == 0:
+                self.target_net.load_state_dict(self.q_net.state_dict())
+
             self.target_net.eval()
             # print(f'target parameters updated on step {self.timestep}')
 
@@ -214,29 +220,39 @@ class DQNAgent:
         rewards = torch.FloatTensor(rewards).to(self.device)
         dones = (1 - torch.FloatTensor(dones)).to(self.device)
         """
-        
         bonus = np.zeros(self.batch_size)
         for i in range(self.batch_size):
             if actions[i] in legal_actions[i] and actions[i] != self.num_actions - 1:
                 bonus[i] += 0.2
         bonus = torch.FloatTensor(bonus).to(self.device)
+        penalty = np.zeros(self.batch_size)
+        for i in range(self.batch_size):
+            if 308 not in legal_actions[i] and actions[i] not in legal_actions[i]:
+                penalty[i] += 0.1
+            if actions[i] == 308:
+                penalty[i] += 0.5
         """
+
         with torch.no_grad():
             next_q_values = self.q_net(next_states)
             next_q_state_values = self.target_net(next_states)
             next_argmax_actions = next_q_values.max(1)[1]
             next_q_values = next_q_state_values.gather(1, next_argmax_actions.unsqueeze(1)).squeeze(1)
+            next_q_values = self.softmax(next_q_values)
 
         expected_q_values = rewards + self.gamma * dones * next_q_values
         expected_q_values.detach()
-
+        self.expected_q_values = expected_q_values
         q_values = self.q_net(states)
         prediction = q_values.max(1)[1]
         q_values = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
+        self.current_q_values = q_values
 
         loss = self.criterion(q_values, expected_q_values)
 
         loss.backward()
+        nn.utils.clip_grad_norm_(self.q_net.parameters(), max_norm=2)
+        # nn.utils.clip_grad_value_(self.q_net.parameters(), clip_value=0.5)
         self.optim.step()
         self.q_net.eval()
 
@@ -268,5 +284,3 @@ class DQNAgent:
         state_dict = torch.load(filepath, map_location=self.device)
         self.q_net.load_state_dict(state_dict['q_net'])
         self.target_net.load_state_dict(state_dict['target_net'])
-
-

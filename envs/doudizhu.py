@@ -36,7 +36,7 @@ class DoudizhuEnv(Env):
             numpy array: 8*5*15 array
                          8 : 1. current hand
                              2. the union of the other two players' hand
-                             3,4,5. the recent three actions taken by the current player
+                             3,4,5. the recent three actions 
                              6-7: representing player's role
                                 6. 1s if landlord, 0s otherwise
                                 7. 0s for peasant1, 1s for peasant2
@@ -51,9 +51,15 @@ class DoudizhuEnv(Env):
             obs[index][0] = np.ones(15, dtype=int)
         self._encode_cards(obs[0], state['current_hand'])
         self._encode_cards(obs[1], state['others_hand'])
+        for i, action in enumerate(state['trace'][-3:]):
+            if action[1] != 'pass':
+                self._encode_cards(obs[4 - i], action[1])
+        """
+        # recent three actions taken by the current player
         for i, action in enumerate(state['trace'][-9::3]):
             if action[1] != 'pass':
                 self._encode_cards(obs[4 - i], action[1])
+        """
         if state['self'] == 0:
             obs[5][:] = np.ones(15, dtype=int)
         elif state['self'] == 1:

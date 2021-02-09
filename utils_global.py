@@ -1,6 +1,6 @@
 import numpy as np
 
-from doudizhu.core import Card, Player
+from envs.core import Card, Player
 
 
 def init_standard_deck():
@@ -369,7 +369,7 @@ def assign_task(task_num, process_num):
     return per_tasks
 
 
-def tournament(env, num):
+def tournament(env, num, agent):
     '''
     Evaluate he performance of the agents in the environment
 
@@ -383,7 +383,10 @@ def tournament(env, num):
     payoffs = [0 for _ in range(env.player_num)]
     counter = 0
     while counter < num:
-        _, _payoffs = env.run(is_training=False)
+        agent.actions = []
+        agent.predictions = []
+        ## add return trajectories for logging
+        trajectories, _payoffs = env.run(is_training=False)
         if isinstance(_payoffs, list):
             for _p in _payoffs:
                 for i, _ in enumerate(payoffs):
@@ -395,5 +398,5 @@ def tournament(env, num):
             counter += 1
     for i, _ in enumerate(payoffs):
         payoffs[i] /= counter
-    return payoffs
+    return payoffs, trajectories
 
