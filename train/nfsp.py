@@ -7,7 +7,7 @@ from agents.random_agent import RandomAgent
 from env.doudizhu import DoudizhuEnv
 from utils.logger import Logger
 from utils_global import tournament
-from agents.NFSP_agent_v3 import NFSPAgent
+from agents.nfsp_agent import NFSPAgent
 
 eval_every = 500
 eval_num = 1000

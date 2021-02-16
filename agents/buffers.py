@@ -1,4 +1,4 @@
-from collections import namedtuple
+from collections import namedtuple, deque
 import random
 import numpy as np
 
@@ -192,39 +192,91 @@ class ReservoirMemoryBuffer(object):
 
 
 class NStepReplayBuffer(object):
-    def __init__(self, memory_size, batch_size, n_step, gamma):
-        self.memory_size = memory_size
+    def __init__(self, capacity, batch_size, n_step, gamma):
+        self.capacity = capacity
         self.batch_size = batch_size
         self.n_step = n_step
         self.gamma = gamma
-        self.memory = []
-        self.n_step_buffer = []
+        self.memory = deque(maxlen=self.capacity)
+        self.n_step_buffer = deque(maxlen=self.n_step)
 
     def _get_n_step_info(self):
         reward, next_state, done = self.n_step_buffer[-1][-3:]
         for _, _, rewards, next_states, done in reversed(list(self.n_step_buffer)[: -1]):
             reward = self.gamma * reward * (1 - done) + rewards
-            next_observation, done = (next_states, done) if done else (next_state, done)
+            next_state, done = (next_states, done) if done else (next_state, done)
         return reward, next_state, done
 
     def save(self, state, action, reward, next_state, done):
-        if len(self.memory) == self.memory_size:
-            self.memory.pop(0)
+        state = np.expand_dims(state, 0)
+        next_state = np.expand_dims(next_state, 0)
 
         self.n_step_buffer.append([state, action, reward, next_state, done])
         if len(self.n_step_buffer) < self.n_step:
             return
-        reward, next_observation, done = self._get_n_step_info()
-        observation, action = self.n_step_buffer[0][: 2]
+        reward, next_state, done = self._get_n_step_info()
+        state, action = self.n_step_buffer[0][: 2]
         self.memory.append([state, action, reward, next_state, done])
 
     def sample(self):
         samples = random.sample(self.memory, self.batch_size)
-        return map(np.array, zip(*samples))
+        state, action, reward, next_state, done = zip(*samples)
+        return np.concatenate(state, 0), action, reward, np.concatenate(next_state, 0), done
 
     def __len__(self):
         return len(self.memory)
 
 
+class PrioritizedReplayBuffer:
+    def __init__(self, capacity, batch_size, alpha=0.6, beta=0.4, beta_increment_step=1000):
+        self.capacity = capacity
+        self.batch_size = batch_size
+        self.alpha = alpha
+        self.beta = beta
+        self.beta_increment = (1 - beta) / beta_increment_step
+        self.pos = 0
+        self.memory = []
+        self.priorities = np.zeros([self.capacity], dtype=np.float32)
 
+    def save(self, state, action, reward, next_state, done):
+        state = np.expand_dims(state, 0)
+        next_state = np.expand_dims(next_state, 0)
 
+        max_prior = np.max(self.priorities) if self.memory else 1.0
+
+        if len(self.memory) < self.capacity:
+            self.memory.append([state, action, reward, next_state, done])
+        else:
+            self.memory[self.pos] = [state, action, reward, next_state, done]
+        self.priorities[self.pos] = max_prior
+        self.pos += 1
+        self.pos = self.pos % self.capacity
+
+    def sample(self):
+        if len(self.memory) < self.capacity:
+            probs = self.priorities[: len(self.memory)]
+        else:
+            probs = self.priorities
+
+        probs = probs ** self.alpha
+        probs = probs / np.sum(probs)
+
+        indices = np.random.choice(len(self.memory), self.batch_size, p=probs)
+        samples = [self.memory[idx] for idx in indices]
+
+        weights = (len(self.memory) * probs[indices]) ** (-self.beta)
+
+        if self.beta < 1:
+            self.beta += self.beta_increment
+        weights = weights / np.max(weights)
+        weights = np.array(weights, dtype=np.float32)
+
+        state, action, reward, next_state, done = zip(*samples)
+        return np.concatenate(state, 0), action, reward, np.concatenate(next_state, 0), done, indices, weights
+
+    def update_priorities(self, indices, priorities):
+        for idx, priority in zip(indices, priorities):
+            self.priorities[idx] = priority
+
+    def __len__(self):
+        return len(self.memory)

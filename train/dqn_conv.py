@@ -4,7 +4,7 @@ from datetime import datetime
 import torch
 
 from agents.random_agent import RandomAgent
-from agents.DQNAgent import DQNAgent
+from agents.ddqn_agent import DQNAgent
 from agents.rule_based_agent import DouDizhuRuleAgentV1
 from envs.doudizhu import DoudizhuEnv
 from utils.logger import Logger
