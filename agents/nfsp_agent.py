@@ -1,11 +1,11 @@
 import numpy as np
 import torch
 
-from agents.DQNAgent import DQNAgent
+from agents.value_based.ddqn_agent import DQNAgent
 from agents.buffers import ReservoirMemoryBuffer
 from agents.networks import AveragePolicyNet
 from utils_global import remove_illegal
-from torch import nn
+
 
 # adding a bonus to rl_agent
 # action saved in sl_buffer: action taken by the agent after removing illegal or predicted by dqn_net??
@@ -17,15 +17,10 @@ class NFSPAgent:
     Parameters:
         num_actions (int) : how many possible actions
         state_shape (list) : tensor shape of state
-        sl_hidden_layers (list) : hidden layer sizes to use for average policy net for supervised learning
-        rl_hidden_layers (list) : hidden layer sizes to use for best response net for reinforcement learning
         sl_lr (float) : learning rate to use for training average policy net
         rl_lr (float) : learning rate to use for training action value net
         batch_size (int) : batch sizes to use when training networks
-        rl_memory_size (int) : max number of experiences to store in reinforcement learning memory buffer
         sl_memory_size (int) : max number of experiences to store in supervised learning memory buffer
-        q_update_every (int) : how often to copy parameters to target network
-        epsilons (list) : list of epsilon values to use over training period
         epsilon_decay_steps (int) : how often should we decay epsilon value
         eta (float) : anticipatory parameter for NFSP
         gamma (float) : discount parameter
@@ -270,7 +265,7 @@ class NFSPAgent:
         """
         state_dict = dict()
         state_dict['average_policy'] = self.average_policy.state_dict()
-        state_dict['dqn_net'] = self.rl_agent.q_net.state_dict()
+        state_dict['dqn_local'] = self.rl_agent.local_net.state_dict()
         state_dict['dqn_target'] = self.rl_agent.target_net.state_dict()
 
         torch.save(state_dict, file_path)
@@ -284,5 +279,5 @@ class NFSPAgent:
 
         state_dict = torch.load(filepath, map_location=self.device)
         self.average_policy.load_state_dict(state_dict['average_policy'])
-        self.rl_agent.q_net.load_state_dict(state_dict['dqn_net'])
+        self.rl_agent.local_net.load_state_dict(state_dict['dqn_local'])
         self.rl_agent.target_net.load_state_dict(state_dict['dqn_target'])

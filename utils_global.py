@@ -14,6 +14,7 @@ def init_standard_deck():
     res = [Card(suit, rank) for suit in suit_list for rank in rank_list]
     return res
 
+
 def init_54_deck():
     ''' Initialize a standard deck of 52 cards, BJ and RJ
 
@@ -41,7 +42,7 @@ def get_random_cards(cards, num, np_random=None):
     '''
     if not np_random:
         np_random = np.random.RandomState()
-    if not num> 0:
+    if not num > 0:
         raise AssertionError('Invalid input number')
     if not num <= len(cards):
         raise AssertionError('Input number larger than length of cards')
@@ -52,6 +53,7 @@ def get_random_cards(cards, num, np_random=None):
     chosen_cards = remained_cards[:num]
     remained_cards = remained_cards[num:]
     return chosen_cards, remained_cards
+
 
 def is_pair(cards):
     ''' Check whether the card is a pair
@@ -67,6 +69,7 @@ def is_pair(cards):
     else:
         return False
 
+
 def is_single(cards):
     ''' Check whether the card is singel
 
@@ -80,6 +83,7 @@ def is_single(cards):
         return True
     else:
         return False
+
 
 def rank2int(rank):
     ''' Get the coresponding number of a rank.
@@ -113,6 +117,7 @@ def rank2int(rank):
         return 13
     return None
 
+
 def get_cards_from_ranks(player, ranks):
     ''' Get chosen cards and remained cards from a player's hand according to input rank list
 
@@ -135,6 +140,7 @@ def get_cards_from_ranks(player, ranks):
                 chosen_cards.append(card)
                 remained_cards.pop(remained_cards.index(card))
     return chosen_cards, remained_cards
+
 
 def take_out_cards(cards, remove_cards):
     ''' Take out specific cards from a list of cards
@@ -161,6 +167,7 @@ def take_out_cards(cards, remove_cards):
                 remove_cards_cp.pop(remove_cards_cp.index(remove_card))
     return remove_cards_cp
 
+
 def is_in_cards(origin_cards, check_cards):
     ''' Check if a list of Card objects contains another list of Card objects
 
@@ -185,6 +192,7 @@ def is_in_cards(origin_cards, check_cards):
             return False
     return True
 
+
 def elegent_form(card):
     ''' Get a elegent form of a card string
 
@@ -194,10 +202,11 @@ def elegent_form(card):
     Returns:
         elegent_card (string): A nice form of card
     '''
-    suits = {'S': '♠', 'H': '♥', 'D': '♦', 'C': '♣','s': '♠', 'h': '♥', 'd': '♦', 'c': '♣' }
+    suits = {'S': '♠', 'H': '♥', 'D': '♦', 'C': '♣', 's': '♠', 'h': '♥', 'd': '♦', 'c': '♣'}
     rank = '10' if card[1] == 'T' else card[1]
 
     return suits[card[0]] + rank
+
 
 def print_card(cards):
     ''' Nicely print a card or list of cards
@@ -246,8 +255,7 @@ def print_card(cards):
             lines[8].append('└─────────┘')
 
     for line in lines:
-        print ('   '.join(line))
-
+        print('   '.join(line))
 
 
 def init_players(n):
@@ -265,6 +273,7 @@ def init_players(n):
         players.append(Player(idx))
     return players
 
+
 def get_upstream_player_id(player, players):
     ''' Obtain the upsteam player's player_id
 
@@ -274,7 +283,8 @@ def get_upstream_player_id(player, players):
 
     Note: This function assumes player_id(s) in 'players' list starts from 0, and are consequent.
     '''
-    return (player.player_id-1)%len(players)
+    return (player.player_id - 1) % len(players)
+
 
 def get_downstream_player_id(player, players):
     ''' Obtain the downsteam player's player_id
@@ -286,7 +296,8 @@ def get_downstream_player_id(player, players):
     Note: This function assumes player_id(s) in 'players' list start from 0, and are consequent.
     '''
 
-    return (player.player_id+1)%len(players)
+    return (player.player_id + 1) % len(players)
+
 
 def reorganize(trajectories, payoffs):
     ''' Reorganize the trajectory to make it RL friendly
@@ -303,18 +314,19 @@ def reorganize(trajectories, payoffs):
     new_trajectories = [[] for _ in range(player_num)]
 
     for player in range(player_num):
-        for i in range(0, len(trajectories[player])-2, 2):
-            if i == len(trajectories[player])-3:
+        for i in range(0, len(trajectories[player]) - 2, 2):
+            if i == len(trajectories[player]) - 3:
                 reward = payoffs[player]
-                done =True
+                done = True
             else:
                 reward, done = 0, False
-            transition = trajectories[player][i:i+3].copy()
+            transition = trajectories[player][i:i + 3].copy()
             transition.insert(2, reward)
             transition.append(done)
 
             new_trajectories[player].append(transition)
     return new_trajectories
+
 
 def set_global_seed(seed):
     ''' Set the global seed for reproducing results
@@ -333,6 +345,7 @@ def set_global_seed(seed):
         np.random.seed(seed)
         import random
         random.seed(seed)
+
 
 def remove_illegal(action_probs, legal_actions):
     ''' Remove illegal actions and normalize the
@@ -383,9 +396,11 @@ def tournament(env, num, agent):
     payoffs = [0 for _ in range(env.player_num)]
     counter = 0
     while counter < num:
-        agent.actions = []
-        agent.predictions = []
-        ## add return trajectories for logging
+        if agent is not None:
+            agent.actions = []
+            agent.predictions = []
+
+        # add return trajectories for logging
         trajectories, _payoffs = env.run(is_training=False)
         if isinstance(_payoffs, list):
             for _p in _payoffs:
@@ -400,3 +415,52 @@ def tournament(env, num, agent):
         payoffs[i] /= counter
     return payoffs, trajectories
 
+
+NumtoCard = {0: '3', 1: '4', 2: '5', 3: '6', 4: '7', 5: '8', 6: '9', 7: 'T', 8: 'J', 9: 'Q', 10: 'K',
+             11: 'A', 12: '2', 13: 'B', 14: 'R'}
+
+
+def state_np_to_str(state):
+    """
+    get the string representation of current_hand and last three actions from state_obs numpy array.
+    :param
+    state (dict): Raw state from the doudizhu
+    :return:
+    (str) cur_hand_str, last_one_action, last_two_action, last_three_action, legal_actions:
+    string representation of current_hand and last three actions
+    """
+    # get current_hand and last three actions from state_obs numpy array
+    current_hand = np.array(state["obs"][0])
+    last_one_card = np.array(state["obs"][2])
+    last_two_card = np.array(state["obs"][3])
+    last_three_card = np.array(state["obs"][4])
+
+    legal_actions = np.array(state["legal_actions"])
+    hand_str = ""
+    last_one_action = ""
+    last_two_action = ""
+    last_three_action = ""
+
+    for i in range(15):
+        card_num = current_hand[:, i].tolist().index(1)
+        one_cardnum = last_one_card[:, i].tolist().index(1)
+        two_cardnum = last_two_card[:, i].tolist().index(1)
+        three_cardnum = last_three_card[:, i].tolist().index(1)
+
+        if card_num != 0:
+            for mm in range(card_num):
+                hand_str = hand_str + NumtoCard[i]
+
+        if one_cardnum != 0:
+            for mm in range(one_cardnum):
+                last_one_action = last_one_action + NumtoCard[i]
+
+        if two_cardnum != 0:
+            for mm in range(two_cardnum):
+                last_two_action = last_two_action + NumtoCard[i]
+
+        if three_cardnum != 0:
+            for mm in range(three_cardnum):
+                last_three_action = last_three_action + NumtoCard[i]
+
+    return hand_str, last_one_action, last_two_action, last_three_action, legal_actions

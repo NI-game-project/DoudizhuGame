@@ -5,7 +5,7 @@ import numpy as np
 Transition = namedtuple('Transition', ['state', 'action', 'reward', 'next_state', 'done'])
 
 
-class ReplayMemoryBuffer(object):
+class BasicBuffer(object):
     """
     Memory for saving transitions
     """
@@ -49,7 +49,7 @@ class ReplayMemoryBuffer(object):
                 next_state_batch (list): a batch of states
                 done_batch (list): a batch of dones
         """
-        # TODO: Add legal_action_batch to the memory
+        # TODO: Add legal_action_batch to the memory --done -> BasicBufferWithLegalActions
         samples = random.sample(self.memory, self.batch_size)
         return map(np.array, zip(*samples))
 
@@ -66,10 +66,10 @@ class ReplayMemoryBuffer(object):
 Transition_ = namedtuple('Transition', ['state', 'legal_actions', 'action', 'reward', 'next_state', 'done'])
 
 
-class ReplayMemoryBuffer_(object):
+class BasicBufferWithLegalActions(object):
     """
     Memory for saving transitions
-    Add legal_actions to buffer used to calculate bonus(predicting legal actions) for network
+    Add legal_actions to buffer used to calculate penalty(if predicting illegal actions) for network
     """
 
     def __init__(self, memory_size, batch_size):
@@ -191,7 +191,12 @@ class ReservoirMemoryBuffer(object):
         return iter(self.memory)
 
 
-class NStepReplayBuffer(object):
+class NStepBuffer(object):
+    """
+    A trade-off between MC and TD,
+    uses the n next immediate rewards and approximates the rest with the value of the state visited n steps later.
+    """
+
     def __init__(self, capacity, batch_size, n_step, gamma):
         self.capacity = capacity
         self.batch_size = batch_size
@@ -203,7 +208,7 @@ class NStepReplayBuffer(object):
     def _get_n_step_info(self):
         reward, next_state, done = self.n_step_buffer[-1][-3:]
         for _, _, rewards, next_states, done in reversed(list(self.n_step_buffer)[: -1]):
-            reward = self.gamma * reward * (1 - done) + rewards
+            reward = rewards + self.gamma * reward * (1 - done)
             next_state, done = (next_states, done) if done else (next_state, done)
         return reward, next_state, done
 
@@ -227,13 +232,13 @@ class NStepReplayBuffer(object):
         return len(self.memory)
 
 
-class PrioritizedReplayBuffer:
-    def __init__(self, capacity, batch_size, alpha=0.6, beta=0.4, beta_increment_step=1000):
+class PrioritizedBuffer:
+    def __init__(self, capacity, batch_size, alpha=0.6, beta=0.4, beta_increment=0.001):
         self.capacity = capacity
         self.batch_size = batch_size
         self.alpha = alpha
         self.beta = beta
-        self.beta_increment = (1 - beta) / beta_increment_step
+        self.beta_increment = beta_increment
         self.pos = 0
         self.memory = []
         self.priorities = np.zeros([self.capacity], dtype=np.float32)
@@ -271,7 +276,7 @@ class PrioritizedReplayBuffer:
         weights = weights / np.max(weights)
         weights = np.array(weights, dtype=np.float32)
 
-        state, action, reward, next_state, done = zip(*samples)
+        state, action, reward, next_state, done = zip(* samples)
         return np.concatenate(state, 0), action, reward, np.concatenate(next_state, 0), done, indices, weights
 
     def update_priorities(self, indices, priorities):
@@ -280,3 +285,149 @@ class PrioritizedReplayBuffer:
 
     def __len__(self):
         return len(self.memory)
+
+
+class SumTree:
+    """
+    store samples in unsorted sum tree - a binary tree data structure where the parent’s value is the sum of its children.
+    The samples themselves are stored in the leaf nodes.
+    """
+    data_pointer = 0
+
+    def __init__(self, capacity):
+        # number of leaf nodes that will store experiences
+        self.capacity = capacity
+        self.tree = np.zeros(2 * capacity - 1)
+        # store the actual experiences here
+        self.data = np.zeros(capacity, dtype=object)
+
+    def add(self, priority, data):
+        # add data to data and updates corresponding to the priority
+        tree_idx = self.data_pointer + self.capacity - 1
+        self.data[self.data_pointer] = data
+        # update the sum tree with new priority
+        self.update(tree_idx, priority)
+        # increment the data pointer as data is stored from left to right nodes
+        # create a ring buffer with fixed capacity by overwriting new data
+        self.data_pointer += 1
+        if self.data_pointer >= self.capacity:
+            self.data_pointer = 0
+
+    def update(self, tree_idx, priority):
+        # change - the update factor for the sum tree
+        change = priority - self.tree[tree_idx]
+        # store the priority first in the tree
+        self.tree[tree_idx] = priority
+        # update the change to parent nodes
+        while tree_idx != 0:
+            tree_idx = (tree_idx - 1) // 2
+            self.tree[tree_idx] += change
+
+    def get_leaf(self, v):
+        # traverse the tree from the top to bottom
+        parent_idx = 0
+        while True:
+            left_idx = parent_idx * 2 + 1
+            right_idx = left_idx + 1
+            # base condition to break once tree traversal is complete
+            if left_idx >= len(self.tree):
+                leaf_idx = parent_idx
+                break
+            # find the node with maximum priority and traverse the subtree
+            else:
+                if v <= self.tree[left_idx]:
+                    parent_idx = left_idx
+                else:
+                    v -= self.tree[left_idx]
+                    parent_idx = right_idx
+        # the max priority which we could fetch for given input priority
+        data_idx = leaf_idx - self.capacity + 1
+        # return the index of priorities, priorities, and experiences
+        return leaf_idx, self.tree[leaf_idx], self.data[data_idx]
+
+    @property
+    def total_priority(self):
+        return self.tree[0]
+
+    @property
+    def max_p(self):
+        return np.max(self.tree[-self.capacity:])
+
+
+class PrioritizedBufferWithSumTree:
+
+    # Epsilon ϵ is a small positive constant that ensures that no transition has zero priority.
+    epsilon = 0.01
+    # Alpha(0≤α≤1), controls the difference between high and low error. It determines how much prioritization is used.
+    # If α=0, uniform case.
+    alpha = 0.6
+    beta = 0.4
+    beta_increment = 0.001
+    max_error = 1.0
+
+    def __init__(self, capacity, batch_size):
+        self.capacity = capacity
+        self.batch_size = batch_size
+        # build a SumTree
+        self.tree = SumTree(self.capacity)
+
+    def save(self, state, action, reward, next_state, done):
+        # new experiences are first stored in the tree with max priority
+        # untrained neural network is likely to return a value around zero for every input,
+        # The error in this case is simply the reward experienced in a given sample
+        max_priority = self.tree.max_p
+        if max_priority == 0:
+            max_priority = self.max_error
+        experience = (state, action, reward, next_state, done)
+        self.tree.add(max_priority, experience)
+
+    def sample(self):
+        batch = []
+        idxs = np.empty((self.batch_size, ), dtype=np.int32)
+        is_weights = np.empty((self.batch_size, 1), dtype=np.float32)
+        # split the total priority into batch-sized segments
+        priority_segment = self.tree.total_priority / self.batch_size
+        # scheduler for beta
+        self.beta = np.min([1.0, self.beta + self.beta_increment])
+
+        for i in range(self.batch_size):
+            # calculate priority value for each segment to get corresponding experiences
+            a, b = priority_segment * i, priority_segment * (i+1)
+            v = np.random.uniform(a, b)
+            idx, priority, data = self.tree.get_leaf(v)
+
+            # Priority is translated to probability of being chosen for replay.
+            # fetch and normalize priority
+            # A sample i has a probability of being picked during the experience replay determined by prob =pi / ∑kpk
+            sampling_prob = priority / self.tree.total_priority
+
+            # weight update factor depends on sampling probability of the experience and beta
+            is_weights[i, 0] = np.power(self.batch_size * sampling_prob, -self.beta)
+            # store the index and experience
+            idxs[i] = idx
+            experience = data
+            batch.append(experience)
+        state_batch = []
+        action_batch = []
+        reward_batch = []
+        next_state_batch = []
+        done_batch = []
+
+        for transition in batch:
+            state, action, reward, next_state, done = transition
+            state_batch.append(state)
+            action_batch.append(action)
+            reward_batch.append(reward)
+            next_state_batch.append(next_state)
+            done_batch.append(done)
+
+        return state_batch, action_batch, reward_batch, next_state_batch, done_batch, idxs, is_weights
+
+    def update_priorities(self, tree_idx, abs_error):
+        abs_error += self.epsilon
+        clipped_errors = np.minimum(abs_error, self.max_error)
+        # The error is converted to priority by p=(error+ϵ)α
+        priorities = np.power(clipped_errors, self.alpha)
+        for tree_index, priority in zip(tree_idx, priorities):
+            self.tree.update(tree_index, priority)
+
