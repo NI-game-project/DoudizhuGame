@@ -1,13 +1,12 @@
 import numpy as np
 import torch
 
-from agents.value_based.ddqn_agent import DQNAgent
+from agents.value_based.duel_dqn_agent import DQNAgent
 from agents.buffers import ReservoirMemoryBuffer
 from agents.networks import AveragePolicyNet
 from utils_global import remove_illegal
 
 
-# adding a bonus to rl_agent
 # action saved in sl_buffer: action taken by the agent after removing illegal or predicted by dqn_net??
 # sl_loss: optimizing the log-prob of past actions taken   L = E(-log(ap_net(s,a)))
 
@@ -27,7 +26,7 @@ class NFSPAgent:
         device (torch.device) : device to put models on
     """
     def __init__(self,
-                 # these are the parameters in nfsp paper
+                 # these are the hyperparameters in nfsp paper
                  scope,
                  num_actions,
                  state_shape,

@@ -3,15 +3,16 @@ import timeit
 from datetime import datetime
 import torch
 
-from envs.doudizhu import DoudizhuEnv
+from envs.doudizhu_rlcard import DoudizhuEnv
+#from envs.mydoudizhu import DoudizhuEnv
 from utils.logger import Logger
 from utils_global import tournament
 from agents.non_rl.random_agent import RandomAgent
 from agents.non_rl.rule_based_agent import DouDizhuRuleAgentV1
 ### uncomment these lines to import different DQNAgent
 #from agents.per_dqn_agent import DQNAgent
-from agents.value_based.ddqn_agent import DQNAgent
-#from agents.value_based.C51_agent import DQNAgent
+from agents.value_based.duel_dqn_agent import DQNAgent
+#from agents.value_based.C51_dqn_agent import DQNAgent
 #from agents.value_based.n_step_dqn_agent import DQNAgent
 #from agents.value_based.noisy_dqn_agent import DQNAgent
 
@@ -28,6 +29,9 @@ best_result = 0
 # Make environments to train and evaluate models
 config = {
     'seed': 0,
+    # add key 'use_conv' to config dict, if using mydoudizhu.py as env
+    # to indicate whether using state_encoding for fc_net or conv_net.
+    'use_conv': False,
     'allow_step_back': True,
     'allow_raw_data': True,
     'record_action': True,
