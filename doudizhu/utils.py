@@ -7,7 +7,7 @@ import json
 from collections import OrderedDict
 import threading
 import collections
-
+import numpy as np
 
 # Read required docs
 ROOT_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -44,6 +44,8 @@ INDEX = {'3': 0, '4': 1, '5': 2, '6': 3, '7': 4,
          '8': 5, '9': 6, 'T': 7, 'J': 8, 'Q': 9,
          'K': 10, 'A': 11, '2': 12, 'B': 13, 'R': 14}
 INDEX = OrderedDict(sorted(INDEX.items(), key=lambda t: t[1]))
+
+ACTION_ID_TO_STR = {index: action for action, index in ACTION_SPACE.items()}
 
 
 def doudizhu_sort_str(card_1, card_2):
@@ -395,6 +397,85 @@ def show_card(cards, info, n):
                 tmp.append(i[1])
             names.append(tmp)
         print(names)
+
+
+NumtoCard = {0: '3', 1: '4', 2: '5', 3: '6', 4: '7', 5: '8', 6: '9', 7: 'T', 8: 'J', 9: 'Q', 10: 'K',
+             11: 'A', 12: '2', 13: 'B', 14: 'R'}
+
+
+def state_np_to_str(state):
+    """
+    get the string representation of current_hand and last three actions from state_obs numpy array.
+    :param
+    state (dict): Raw state from the doudizhu
+    :return:
+    (str) cur_hand_str, last_one_action, last_two_action, last_three_action, legal_actions:
+    string representation of current_hand and last three actions
+    """
+    # get current_hand and last three actions from state_obs numpy array
+    current_hand = np.array(state["obs"][0])
+    last_one_card = np.array(state["obs"][2])
+    last_two_card = np.array(state["obs"][3])
+    last_three_card = np.array(state["obs"][4])
+
+    legal_actions = np.array(state["legal_actions"])
+    hand_str = ""
+    last_one_action = ""
+    last_two_action = ""
+    last_three_action = ""
+
+    for i in range(15):
+        card_num = current_hand[:, i].tolist().index(1)
+        one_cardnum = last_one_card[:, i].tolist().index(1)
+        two_cardnum = last_two_card[:, i].tolist().index(1)
+        three_cardnum = last_three_card[:, i].tolist().index(1)
+
+        if card_num != 0:
+            for mm in range(card_num):
+                hand_str = hand_str + NumtoCard[i]
+
+        if one_cardnum != 0:
+            for mm in range(one_cardnum):
+                last_one_action = last_one_action + NumtoCard[i]
+
+        if two_cardnum != 0:
+            for mm in range(two_cardnum):
+                last_two_action = last_two_action + NumtoCard[i]
+
+        if three_cardnum != 0:
+            for mm in range(three_cardnum):
+                last_three_action = last_three_action + NumtoCard[i]
+
+    return hand_str, last_one_action, last_two_action, last_three_action, legal_actions
+
+
+def opt_legal(legal_action):
+    """
+    input: np.array of legal_action
+    return: np.array of optimized legal_action
+
+    optimize legal actions: if the card of one of the legal action is contained in another legal action,
+    remove that action from legal_action
+
+    e.g., np.array: [2, 3, 4, 9, 68, 76, 308] -> [9, 76, 308]
+          string:   ['5', '6', '7', 'Q', '45678', '456789', 'pass'] -> ['Q', '456789', 'pass']
+    """
+    legal_action_str = [ACTION_ID_TO_STR[action] for action in legal_action]
+    del_id = []
+    new_legal_action = []
+
+    for i in range(len(legal_action_str)):
+        for j in range(i + 1, len(legal_action_str)):
+            if legal_action_str[i] in legal_action_str[j] and '*' not in legal_action_str[i]:
+                if legal_action_str[i] not in range(238, 269) and legal_action_str[i] not in range(281, 294):
+                    del_id.append(legal_action[i])
+                    break
+
+    for card in legal_action:
+        if card not in del_id:
+            new_legal_action.append(card)
+
+    return new_legal_action
 
 # Test json order
 # if __name__ == '__main__':
