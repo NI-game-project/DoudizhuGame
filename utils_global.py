@@ -1,5 +1,6 @@
 import numpy as np
 
+from doudizhu.utils import INDEX_CARD_RANK_STR
 from envs.core import Card, Player
 
 
@@ -416,8 +417,39 @@ def tournament(env, num, agent):
     return payoffs, trajectories
 
 
-NumtoCard = {0: '3', 1: '4', 2: '5', 3: '6', 4: '7', 5: '8', 6: '9', 7: 'T', 8: 'J', 9: 'Q', 10: 'K',
-             11: 'A', 12: '2', 13: 'B', 14: 'R'}
+def eval_tournament(env, num):
+    '''
+    Evaluate he performance of the agents in the environment
+
+    Args:
+        env (Env class): The environment to be evaluated.
+        num (int): The number of games to play.
+
+    Returns:
+        A list of avrage payoffs for each player
+    '''
+    payoffs = [0 for _ in range(env.player_num)]
+    counter = 0
+    while counter < num:
+        print(f'counter: {counter}')
+
+        # add return trajectories for logging
+        trajectories, _payoffs = env.run(is_training=False)
+
+        for p in range(env.player_num):
+            print(env.game.players[p].initial_hand)
+        if isinstance(_payoffs, list):
+            for _p in _payoffs:
+                for i, _ in enumerate(payoffs):
+                    payoffs[i] += _p[i]
+                counter += 1
+        else:
+            for i, _ in enumerate(payoffs):
+                payoffs[i] += _payoffs[i]
+            counter += 1
+    for i, _ in enumerate(payoffs):
+        payoffs[i] /= counter
+    return payoffs
 
 
 def state_np_to_str(state):
@@ -449,18 +481,18 @@ def state_np_to_str(state):
 
         if card_num != 0:
             for mm in range(card_num):
-                hand_str = hand_str + NumtoCard[i]
+                hand_str = hand_str + INDEX_CARD_RANK_STR[i]
 
         if one_cardnum != 0:
             for mm in range(one_cardnum):
-                last_one_action = last_one_action + NumtoCard[i]
+                last_one_action = last_one_action + INDEX_CARD_RANK_STR[i]
 
         if two_cardnum != 0:
             for mm in range(two_cardnum):
-                last_two_action = last_two_action + NumtoCard[i]
+                last_two_action = last_two_action + INDEX_CARD_RANK_STR[i]
 
         if three_cardnum != 0:
             for mm in range(three_cardnum):
-                last_three_action = last_three_action + NumtoCard[i]
+                last_three_action = last_three_action + INDEX_CARD_RANK_STR[i]
 
     return hand_str, last_one_action, last_two_action, last_three_action, legal_actions

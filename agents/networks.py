@@ -58,12 +58,11 @@ class DQN(nn.Module):
         if self.use_conv:
             x = self.features(state)
             x = self.flatten(x)
-            q_values = self.fc(x)
 
         else:
             x = torch.flatten(state, start_dim=1)
-            q_values = self.fc(x)
 
+        q_values = self.fc(x)
         return q_values
 
     def _feature_size(self):
@@ -226,44 +225,159 @@ class DQNNoisy(nn.Module):
         self.noisy2.reset_noise()
 
 
-class CategoricalDQNet(nn.Module):
+class CategoricalDQN(nn.Module):
     """
      the output layer predicts the distribution of the returns for each action a in state s, instead of its mean Qπ(s,a)
     """
 
-    def __init__(self, state_shape, num_actions, num_atoms=51, v_min=-10., v_max=10.):
+    def __init__(self, state_shape, num_actions, num_atoms=51, v_min=-10., v_max=10., use_conv=False):
         """Initialize parameters and build model.
                 Params
                     state_size (int): Dimension of each state
                     action_size (int): Dimension of each action
         """
-        super(CategoricalDQNet, self).__init__()
+        super(CategoricalDQN, self).__init__()
         self.num_atoms = num_atoms
         self.v_min = v_min
         self.v_max = v_max
         self.num_actions = num_actions
         self.state_shape = state_shape
-        self.softmax = nn.Softmax(dim=1)
+        self.use_conv = use_conv
+        self.flatten = Flatten()
+        self.softmax = nn.Softmax(dim=-1)
 
         flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
-        self.fc = nn.Sequential(
-            nn.Linear(flattened_state_shape, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, self.num_actions * self.num_atoms),
-        )
+
+        if self.use_conv:
+            self.features = nn.Sequential(
+                nn.Conv2d(self.state_shape[0], 32, kernel_size=5, stride=1),
+                nn.BatchNorm2d(32),
+                cReLU(),
+                nn.Conv2d(64, 64, kernel_size=1, stride=1),
+                nn.BatchNorm2d(64),
+                cReLU(),
+            )
+
+            self.fc = nn.Sequential(
+                nn.Linear(self._feature_size(), 512),
+                nn.ReLU(),
+                nn.Linear(512, self.num_actions * self.num_atoms)
+            )
+        else:
+            self.fc = nn.Sequential(
+                nn.Linear(flattened_state_shape, 512),
+                nn.ReLU(),
+                nn.Linear(512, 512),
+                nn.ReLU(),
+                nn.Linear(512, self.num_actions * self.num_atoms),
+            )
 
     def forward(self, state):
         """
         the Q-value is easy to compute as the mean of the distribution
         """
-        state = torch.flatten(state, start_dim=1)
-        x = self.fc(state)
-        # [batch_size, num_actions, num_atoms)
 
-        dist = F.softmax(x.view(-1, self.num_atoms), 1).view(-1, self.num_actions, self.num_atoms)
+        if self.use_conv:
+            x = self.features(state)
+            x = self.flatten(x)
+
+        else:
+            x = torch.flatten(state, start_dim=1)
+
+        # [batch_size, num_actions, num_atoms)
+        dist = self.fc(x)
+        dist = F.softmax(dist.view(-1, self.num_atoms), 1).view(-1, self.num_actions, self.num_atoms)
         return dist
+
+    """ 
+    def act(self, state):
+        dist = self.forward(state)
+        dist = dist.detach()
+        dist = dist.mul(torch.linspace(self.v_min, self.v_max, self.num_atoms))
+        action = dist.sum(2).max(1)[1].detach()[0].item()
+        return dist, action
+    """
+
+    def _feature_size(self):
+        return self.features(torch.zeros(1, *self.state_shape)).view(1, -1).size(1)
+
+
+class RainbowDQN(nn.Module):
+    def __init__(self, state_shape, num_actions, num_atoms=51, v_min=-10., v_max=10., use_conv=False):
+        super(RainbowDQN, self).__init__()
+        self.num_atoms = num_atoms
+        self.v_min = v_min
+        self.v_max = v_max
+        self.num_actions = num_actions
+        self.state_shape = state_shape
+        self.use_conv = use_conv
+        self.flatten = Flatten()
+        self.softmax = nn.Softmax(dim=-1)
+        self.adv_noisy1 = NoisyLinear(512, 512)
+        self.adv_noisy2 = NoisyLinear(512, self.num_actions * self.num_atoms)
+        self.value_noisy1 = NoisyLinear(512, 512)
+        self.value_noisy2 = NoisyLinear(512, self.num_atoms)
+
+        flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
+        if self.use_conv:
+            self.features = nn.Sequential(
+                nn.Conv2d(self.state_shape[0], 32, kernel_size=5, stride=1),
+                nn.BatchNorm2d(32),
+                cReLU(),
+                nn.Conv2d(64, 64, kernel_size=1, stride=1),
+                nn.BatchNorm2d(64),
+                cReLU(),
+            )
+
+            self.fc = nn.Sequential(
+                nn.Linear(self._feature_size(), 512),
+                nn.ReLU(),
+            )
+        else:
+            self.fc = nn.Sequential(
+                nn.Linear(flattened_state_shape, 512),
+                nn.ReLU(),
+            )
+
+        self.advantage = nn.Sequential(
+            self.adv_noisy1,
+            nn.ReLU(),
+            self.adv_noisy2,
+        )
+
+        self.value = nn.Sequential(
+            self.value_noisy1,
+            nn.ReLU(),
+            self.value_noisy2,
+        )
+
+    def forward(self, state):
+        if self.use_conv:
+            x = self.features(state)
+            x = self.flatten(x)
+        else:
+            x = torch.flatten(state, start_dim=1)
+
+        x = self.fc(x)
+        advantage = self.advantage(x)
+        value = self.value(x)
+        advantage = advantage.view(-1, self.num_actions, self.num_atoms)
+        value = value.view(-1, 1, self.num_atoms)
+        adv_average = torch.mean(advantage, dim=1, keepdim=True)
+
+        dist = advantage + value - adv_average
+        dist = self.softmax(dist)
+
+        return dist
+
+    def _feature_size(self):
+        return self.features(torch.zeros(1, *self.state_shape)).view(1, -1).size(1)
+
+    def reset_noise(self):
+        self.adv_noisy1.reset_noise()
+        self.adv_noisy2.reset_noise()
+        self.value_noisy1.reset_noise()
+        self.value_noisy2.reset_noise()
 
 
 class DRQN(nn.Module):

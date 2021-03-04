@@ -12,7 +12,7 @@ the other to estimate the Q-value itself.
 """
 
 
-class DQNAgent:
+class NoisyDQNAgent:
     """
     Parameters:
         num_actions (int) : how many possible actions

@@ -1,13 +1,12 @@
 import numpy as np
 import torch
-from torch import autograd
 
-from agents.networks import CategoricalDQNet
+from agents.networks import CategoricalDQN
 from utils_global import remove_illegal
 from agents.buffers import BasicBuffer
 
 
-class DQNAgent:
+class C51DQNAgent:
     """
     Parameters:
         num_actions (int) : how many possible actions
@@ -40,7 +39,6 @@ class DQNAgent:
                  soft_update_target_every=10,
                  # for hard_update
                  hard_update_target_every=1000,
-                 dueling=False,
                  use_conv=False,
                  device=None, ):
 
@@ -69,16 +67,19 @@ class DQNAgent:
         self.replay_memory_size = replay_memory_size
         self.replay_memory_init_size = replay_memory_init_size
         self.device = device
+        self.use_conv = use_conv
         self.use_raw = False
 
         # Total time steps
         self.timestep = 0
 
         # initialize q and target networks
-        self.local_net = CategoricalDQNet(state_shape=self.state_shape, num_actions=self.num_actions,
-                                          num_atoms=self.num_atoms, v_min=self.v_min, v_max=self.v_max).to(self.device)
-        self.target_net = CategoricalDQNet(state_shape=self.state_shape, num_actions=self.num_actions,
-                                           num_atoms=self.num_atoms, v_min=self.v_min, v_max=self.v_max).to(self.device)
+        self.local_net = CategoricalDQN(state_shape=self.state_shape, num_actions=self.num_actions,
+                                        num_atoms=self.num_atoms, v_min=self.v_min, v_max=self.v_max,
+                                        use_conv=self.use_conv).to(self.device)
+        self.target_net = CategoricalDQN(state_shape=self.state_shape, num_actions=self.num_actions,
+                                         num_atoms=self.num_atoms, v_min=self.v_min, v_max=self.v_max,
+                                         use_conv=self.use_conv).to(self.device)
 
         self.local_net.eval()
         self.target_net.eval()
@@ -142,7 +143,7 @@ class DQNAgent:
         u = b.ceil().long()
 
         # [batch_size, num_atoms]
-        offset = torch.linspace(0, (self.batch_size - 1) * self.num_atoms, self.batch_size).long()\
+        offset = torch.linspace(0, (self.batch_size - 1) * self.num_atoms, self.batch_size).long() \
             .unsqueeze(1).expand(self.batch_size, self.num_atoms)
 
         proj_dist = torch.zeros(next_dist.size())

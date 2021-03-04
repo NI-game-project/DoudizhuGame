@@ -6,7 +6,7 @@ from utils_global import remove_illegal
 from agents.buffers import NStepBuffer
 
 
-class DQNAgent:
+class NStepDQNAgent:
     """
     Parameters:
         num_actions (int) : how many possible actions

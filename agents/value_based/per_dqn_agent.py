@@ -1,7 +1,9 @@
 import numpy as np
 import torch
-from agents.networks import DQN, DuelingDQN
+
+from doudizhu.utils import opt_legal
 from utils_global import remove_illegal
+from agents.networks import DQN, DuelingDQN
 from agents.buffers import PrioritizedBuffer, PrioritizedBufferWithSumTree
 
 """
@@ -13,7 +15,7 @@ Prioritized replay has a softmax function over the TD error to ensure “explora
 """
 
 
-class DQNAgent:
+class PERDQNAgent:
     """
     Parameters:
         num_actions (int) : how many possible actions
@@ -156,7 +158,7 @@ class DQNAgent:
         """
 
         self.epsilon = self.epsilons[min(self.timestep, self.epsilon_decay_steps - 1)]
-        legal_actions = state['legal_actions']
+        legal_actions = opt_legal(state['legal_actions'])
         max_action = self.predict(state)[1]
         # pick an action randomly
         if np.random.uniform() < self.epsilon:
@@ -272,15 +274,17 @@ class DQNAgent:
         # calculate loss and update priorities
         # an error of a sample is the distance between the Q(s, a) and its target T(S): error=|Q(s,a)−T(S)|
         # store this error in the agent’s memory along with sample index and update it each learning step.
-        errors = torch.abs(expected_q_values - q_values).detach().numpy()
+        td_error = torch.abs(expected_q_values - q_values).detach().numpy()
+        self.memory_buffer.update_priorities(indices, td_error)
 
-        self.memory_buffer.update_priorities(indices, errors)
-        loss = torch.pow(q_values - expected_q_values, 2) * is_weights
+        # calculate the MSEloss
+        loss = torch.pow(expected_q_values - q_values, 2) * is_weights
         loss = loss.mean()
 
         self.optim.zero_grad()
         self.local_net.train()
         loss.backward()
+
         # Clip gradients (normalising by max value of gradient L2 norm)
         # nn.utils.clip_grad_norm_(self.local_net.parameters(), max_norm=2)
         # nn.utils.clip_grad_value_(self.local_net.parameters(), clip_value=0.5)

@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 from utils_global import remove_illegal
-from agents.networks import DRQNet
+from agents.networks import DRQN
 
 """
 Deep Recurrent Q-Learning agent.
@@ -54,19 +54,19 @@ class DRQNAgent:
         self.use_raw = False
 
         # initialize learner and target networks
-        self.q_net = DRQNet(state_shape=state_shape,
-                            num_actions=num_actions,
-                            recurrent_layer_size=recurrent_layer_size,
-                            recurrent_layers_num=recurrent_layers_num,
-                            mlp_layers=mlp_layers,
-                            ).to(self.device)
+        self.q_net = DRQN(state_shape=state_shape,
+                          num_actions=num_actions,
+                          recurrent_layer_size=recurrent_layer_size,
+                          recurrent_layers_num=recurrent_layers_num,
+                          mlp_layers=mlp_layers,
+                          ).to(self.device)
         self.q_net.eval()
-        self.target_net = DRQNet(state_shape=state_shape,
-                                 num_actions=num_actions,
-                                 recurrent_layer_size=recurrent_layer_size,
-                                 recurrent_layers_num=recurrent_layers_num,
-                                 mlp_layers=mlp_layers,
-                                 ).to(self.device)
+        self.target_net = DRQN(state_shape=state_shape,
+                               num_actions=num_actions,
+                               recurrent_layer_size=recurrent_layer_size,
+                               recurrent_layers_num=recurrent_layers_num,
+                               mlp_layers=mlp_layers,
+                               ).to(self.device)
         self.target_net.eval()
 
         # initialize optimizer for learner q network
@@ -251,6 +251,7 @@ class SequentialMemory(object):
         sequential memory implementation for recurrent q network
         save a series of transitions to use as training examples for the recurrent network
     """
+
     def __init__(self, max_size, batch_size):
         self.max_size = max_size
         self.batch_size = batch_size

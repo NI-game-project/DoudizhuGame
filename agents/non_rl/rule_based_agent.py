@@ -11,8 +11,9 @@ class DouDizhuRuleAgentV1(object):
     Dou Dizhu Rule agent version 1
     '''
 
-    def __init__(self):
+    def __init__(self, action_num):
         self.use_raw = True
+        self.action_num = action_num
 
     def step(self, state):
         '''

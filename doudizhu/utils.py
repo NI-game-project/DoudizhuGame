@@ -30,10 +30,6 @@ with open(os.path.join(ROOT_PATH, 'jsondata/card_type.json'), 'r') as file:
 with open(os.path.join(ROOT_PATH, 'jsondata/type_card.json'), 'r') as file:
     TYPE_CARD = json.load(file, object_pairs_hook=OrderedDict)
 
-# a list of all actions
-with open(os.path.join(ROOT_PATH, 'jsondata/all_actions.txt'), 'r') as file:
-    ALL_ACTIONS = file.read()
-
 # rank list of solo character of cards
 CARD_RANK_STR = ['3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K',
                  'A', '2', 'B', 'R']
