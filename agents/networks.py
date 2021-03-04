@@ -90,12 +90,12 @@ class DuelingDQN(nn.Module):
 
             self.features = nn.Sequential(
                 nn.Conv2d(self.state_shape[0], 32, kernel_size=5, stride=1),
+                nn.BatchNorm2d(32),
                 cReLU(),
-                nn.BatchNorm2d(64),
                 nn.Conv2d(64, 64, kernel_size=1, stride=1),
-                cReLU(),
                 nn.BatchNorm2d(64),
-                )
+                cReLU(),
+            )
 
             self.fc = nn.Sequential(
                 nn.Linear(self._feature_size(), 512),
