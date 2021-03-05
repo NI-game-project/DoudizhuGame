@@ -432,12 +432,16 @@ def eval_tournament(env, num):
     counter = 0
     while counter < num:
         print(f'counter: {counter}')
-
-        # add return trajectories for logging
         trajectories, _payoffs = env.run(is_training=False)
 
+        # print out the initial hand of each player, trace and payoffs in one episode for evaluating
         for p in range(env.player_num):
-            print(env.game.players[p].initial_hand)
+            print(f'player {p}: initial hand: {env.game.players[p].initial_hand}')
+        print(f'{counter}th episode payoff: {_payoffs}')
+        state = env.get_state(0)
+        for i in range(len(state['raw_obs']['trace'])):
+            print(state['raw_obs']['trace'][i])
+
         if isinstance(_payoffs, list):
             for _p in _payoffs:
                 for i, _ in enumerate(payoffs):

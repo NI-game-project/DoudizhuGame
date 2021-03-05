@@ -17,15 +17,15 @@ from agents.non_rl.rule_based_agent import DouDizhuRuleAgentV1 as RuleAgent
 ### rl_agents for training ###
 ### uncomment these lines to import different Agent for training
 # from agents.value_based.per_dqn_agent import PERDQNAgent as RLAgent
-# from agents.value_based.duel_dqn_agent import DQNAgent as RLAgent
+from agents.value_based.duel_dqn_agent import DQNAgent as RLAgent
 # from agents.value_based.C51_dqn_agent import C51DQNAgent as RLAgent
 # from agents.value_based.n_step_dqn_agent import NStepDQNAgent as RLAgent
 # from agents.value_based.noisy_dqn_agent import NoisyDQNAgent as RLAgent
-from agents.value_based.rainbow_agent import RainbowAgent as RLAgent
+#from agents.value_based.rainbow_agent import RainbowAgent as RLAgent
 
 test_name = 'ddqn'
 eval_every = 400
-eval_num = 1000
+eval_num = 10
 episode_num = 40_000
 
 save_dir = f'./experiments/{test_name}/'
@@ -38,7 +38,7 @@ config = {
     'seed': 0,
     # add key 'use_conv' to config dict, if using mydoudizhu.py as env
     # to indicate whether using state_encoding for fc_net or conv_net.
-    'use_conv': False,
+    'use_conv': True,
     'allow_step_back': True,
     'allow_raw_data': True,
     'record_action': True,
@@ -62,7 +62,8 @@ for i in range(env.player_num):
                           state_shape=env.state_shape,
                           lr=.00005,
                           soft_update=False,
-                          use_conv=True
+                          use_conv=True,
+                          dueling=True,
                           ))
 
 env.set_agents(agents)

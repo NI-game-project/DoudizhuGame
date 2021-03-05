@@ -432,7 +432,7 @@ def opt_legal(legal_action):
     return new_legal_action
 
 
-def decode_card(plane):
+def decode_cards(plane):
     """
     Decode cards from plane.
     Get the string representation of cards from plane of state_obs.
@@ -446,6 +446,29 @@ def decode_card(plane):
 
     for i in range(15):
         card_num = plane[:, i].tolist().index(1)
+
+        if card_num != 0:
+            for j in range(card_num):
+                cards = cards + INDEX_CARD_RANK_STR[i]
+    return cards
+
+
+def decode_cards_conv(plane):
+    """
+    Decode cards from plane.
+    Get the string representation of cards from plane of state_obs.
+    :param
+    plane: state plane
+    :return:
+    (str) string representation of cards
+    """
+    plane = np.array(plane)
+    cards = ""
+
+    for i in range(15):
+        card_num = 0
+        if not plane[0, i] == 1:
+            card_num = sum(plane[:, i].tolist())
 
         if card_num != 0:
             for j in range(card_num):

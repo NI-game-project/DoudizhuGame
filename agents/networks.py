@@ -29,19 +29,20 @@ class DQN(nn.Module):
 
             self.features = nn.Sequential(
                 nn.Conv2d(self.state_shape[0], 32, kernel_size=5, stride=1),
-                nn.BatchNorm2d(32),
-                # cReLU(),
-                nn.LeakyReLU(),
-                nn.Conv2d(32, 64, kernel_size=1, stride=1),
+                cReLU(),
+                #nn.LeakyReLU(),
                 nn.BatchNorm2d(64),
-                nn.LeakyReLU(),
+                nn.Conv2d(64, 32, kernel_size=1, stride=1),
+                #nn.LeakyReLU(),
+                cReLU(),
+                nn.BatchNorm2d(64),
             )
 
             self.fc = nn.Sequential(
                 nn.Linear(self._feature_size(), 512),
                 nn.ReLU(),
-                nn.Linear(512, 512),
-                nn.ReLU(),
+                #nn.Linear(512, 512),
+                #nn.ReLU(),
                 nn.Linear(512, self.num_actions),
             )
         else:
@@ -89,11 +90,11 @@ class DuelingDQN(nn.Module):
 
             self.features = nn.Sequential(
                 nn.Conv2d(self.state_shape[0], 32, kernel_size=5, stride=1),
-                nn.BatchNorm2d(32),
                 cReLU(),
-                nn.Conv2d(64, 64, kernel_size=1, stride=1),
                 nn.BatchNorm2d(64),
+                nn.Conv2d(64, 64, kernel_size=1, stride=1),
                 cReLU(),
+                nn.BatchNorm2d(128),
             )
 
             self.fc = nn.Sequential(
@@ -461,3 +462,41 @@ class AveragePolicyNet(DQN):
                 nn.Linear(512, self.num_actions),
                 nn.Softmax(dim=-1)
             )
+
+
+class DeepConvNet(nn.Module):
+    def __init__(self, state_shape, action_num):
+        self.state_shape = state_shape
+        self.action_num = action_num
+        super(DeepConvNet, self).__init__()
+
+        # conv layers for single, pair, trio and bomb
+        self.conv1 = nn.Conv2d(self.state_shape[0], 64, (1, 1), (1, 5))
+        self.conv2 = nn.Conv2d(self.state_shape[0], 64, (2, 1), (1, 5))
+        self.conv3 = nn.Conv2d(self.state_shape[0], 64, (3, 1), (1, 5))
+        self.conv4 = nn.Conv2d(self.state_shape[0], 64, (4, 1), (1, 5))
+        self.conv5 = nn.Conv2d(self.state_shape[0], 64, (5, 1), (1, 5))
+        self.conv_single_to_bomb = (self.conv1, self.conv2, self.conv3, self.conv4, self.conv5)  # 64 * 15 * 3
+
+        # conv layers for sequence_one, sequence_two and sequence_three
+        self.conv_straight = nn.Conv2d(8, 64, (1, 15), 1)  # 64 * 5 * 1
+        self.pool = nn.MaxPool2d((5, 1))  # 256 * 15 * 1
+        self.drop = nn.Dropout(0.5)
+        # fully connected layers
+        self.fc1 = nn.Linear(64 * (3 * 3 + 5), 512)
+        self.fc2 = nn.Linear(512, self.action_num)
+
+    def forward(self, state):
+
+        x = torch.cat([f(state) for f in self.conv_single_to_bomb], -2)
+        x = self.pool(x)
+        x = x.view(state.shape[0], -1)
+        x_straight = self.conv_straight(state)
+        x_straight = x_straight.view(state.shape[0], -1)
+
+        x = torch.cat([x, x_straight], -1)
+
+        x = self.drop(x)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x

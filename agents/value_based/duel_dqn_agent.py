@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from agents.networks import DQN, DuelingDQN
+from agents.networks import DQN, DuelingDQN, DeepConvNet
 from utils_global import remove_illegal
 from agents.buffers import BasicBuffer
 
@@ -29,20 +29,21 @@ class DQNAgent:
                  state_shape,
                  num_actions,
                  lr=0.0001,
-                 gamma=0.99,
+                 gamma=0.95,
                  epsilons=None,
                  epsilon_decay_steps=40000,
-                 batch_size=32,
+                 batch_size=256,
                  train_every=1,
                  replay_memory_size=int(2e4),
                  replay_memory_init_size=1000,
                  soft_update=True,
                  # for soft_update
-                 soft_update_target_every=100,
+                 soft_update_target_every=10,
                  # for hard_update
-                 hard_update_target_every=1000,
+                 hard_update_target_every=20,
                  dueling=False,
                  use_conv=False,
+                 deep_conv=False,
                  device=None, ):
 
         if device is None:
@@ -59,7 +60,7 @@ class DQNAgent:
         self.hard_update_every = hard_update_target_every
         self.tau = 1e-3
         self.epsilon_decay_steps = epsilon_decay_steps
-        self.epsilons = np.linspace(1.0, 0.1, epsilon_decay_steps)
+        self.epsilons = np.linspace(0.8, 0.01, epsilon_decay_steps)
         self.epsilon = 0
 
         self.batch_size = batch_size
@@ -67,7 +68,6 @@ class DQNAgent:
         self.replay_memory_size = replay_memory_size
         self.replay_memory_init_size = replay_memory_init_size
         self.device = device
-        self.use_raw = False
 
         # Total time steps
         self.timestep = 0
@@ -85,6 +85,9 @@ class DQNAgent:
         elif not dueling and not use_conv:
             self.local_net = DQN(state_shape=state_shape, num_actions=num_actions, use_conv=False).to(device)
             self.target_net = DQN(state_shape=state_shape, num_actions=num_actions, use_conv=False).to(device)
+        if use_conv and deep_conv:
+            self.local_net = DeepConvNet(state_shape=state_shape, action_num=num_actions)
+            self.target_net = DeepConvNet(state_shape=state_shape, action_num=num_actions)
 
         self.local_net.eval()
         self.target_net.eval()
@@ -236,6 +239,9 @@ class DQNAgent:
         Output:
             loss (float) : loss on training batch
         """
+
+        self.local_net.train()
+
         states, actions, rewards, next_states, dones = self.memory_buffer.sample()
 
         states = torch.FloatTensor(states).to(self.device)
@@ -268,7 +274,6 @@ class DQNAgent:
         loss = self.criterion(q_values, expected_q_values)
 
         self.optim.zero_grad()
-        self.local_net.train()
         loss.backward()
 
         # Clip gradients (normalising by max value of gradient L2 norm)
