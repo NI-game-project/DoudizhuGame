@@ -27,7 +27,8 @@ class DoudizhuEnv(Env):
         self.name = 'doudizhu'
         self.game = Game()
         super().__init__(config)
-        self.state_shape = [8, 5, 15]
+        #self.state_shape = [8, 5, 15]
+        self.state_shape = [8, 4, 15]
 
     def _extract_state(self, state):
         ###### only changed this function and added get_hand_length func in mydoudizhu.py, the rest is the same ######
@@ -46,11 +47,12 @@ class DoudizhuEnv(Env):
 
         '''
 
-        obs = np.zeros((8, 5, 15), dtype=int)
-        ll_hand_length, p1_hand_length, p2_hand_length = self.get_hand_length(state)
+        #obs = np.zeros((8, 5, 15), dtype=int)
+        obs = np.zeros((8, 4, 15), dtype=int)
         # calculate the length of the each player's hand using 'trace' of the state_obs
-        for index in range(5):
-            obs[index][0] = np.ones(15, dtype=int)
+        ll_hand_length, p1_hand_length, p2_hand_length = self.get_hand_length(state)
+        #for index in range(5):
+            #obs[index][0] = np.ones(15, dtype=int)
         self._encode_cards(obs[0], state['current_hand'])
         self._encode_cards(obs[1], state['others_hand'])
         for i, action in enumerate(state['trace'][-3:]):
