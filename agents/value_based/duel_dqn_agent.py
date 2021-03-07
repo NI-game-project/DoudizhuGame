@@ -73,7 +73,11 @@ class DQNAgent:
         self.timestep = 0
 
         # initialize local and target networks
-        if dueling and use_conv:
+        if deep_conv:
+            self.local_net = DeepConvNet(state_shape=state_shape, action_num=num_actions)
+            self.target_net = DeepConvNet(state_shape=state_shape, action_num=num_actions)
+
+        elif dueling and use_conv:
             self.local_net = DuelingDQN(state_shape=state_shape, num_actions=num_actions, use_conv=True).to(device)
             self.target_net = DuelingDQN(state_shape=state_shape, num_actions=num_actions, use_conv=True).to(device)
         elif dueling and not use_conv:
@@ -85,9 +89,6 @@ class DQNAgent:
         elif not dueling and not use_conv:
             self.local_net = DQN(state_shape=state_shape, num_actions=num_actions, use_conv=False).to(device)
             self.target_net = DQN(state_shape=state_shape, num_actions=num_actions, use_conv=False).to(device)
-        if use_conv and deep_conv:
-            self.local_net = DeepConvNet(state_shape=state_shape, action_num=num_actions)
-            self.target_net = DeepConvNet(state_shape=state_shape, action_num=num_actions)
 
         self.local_net.eval()
         self.target_net.eval()
@@ -227,7 +228,7 @@ class DQNAgent:
         else:
             if self.timestep >= self.replay_memory_init_size and self.timestep % self.hard_update_every == 0:
                 self.target_net.load_state_dict(self.local_net.state_dict())
-                # print(f'target parameters hard_updated on step {self.timestep}')
+                #print(f'target parameters hard_updated on step {self.timestep}')
 
         self.target_net.eval()
 

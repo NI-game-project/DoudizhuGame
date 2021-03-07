@@ -235,9 +235,8 @@ def contains_cards(candidate, target):
         return False
     return True
 
-"""
 
-def encode_cards(plane, cards):
+def encode_cards_5x15(plane, cards):
     '''
     Encode cards and represent it into plane.
 
@@ -281,10 +280,9 @@ def encode_cards(plane, cards):
         rank = CARD_RANK_STR.index(cards[-1])
         plane[layer][rank] = 1
         plane[0][rank] = 0
-"""
 
 
-def encode_cards(plane, cards):
+def encode_cards_4x15(plane, cards):
     '''
     Encode cards and represent it into plane.
 
@@ -318,7 +316,6 @@ def encode_cards(plane, cards):
             if card == cards[index - 1]:
                 layer += 1
             else:
-                print(layer)
                 rank = CARD_RANK_STR.index(cards[index - 1])
                 plane[layer][rank] = 1
                 layer = 0
@@ -327,9 +324,7 @@ def encode_cards(plane, cards):
     return plane
 
 
-"""
-
-def encode_cards_conv(plane, cards):
+def encode_cards_conv_5x15(plane, cards):
     #### change the card encoding for convolutional layers ####
     ''' Encode cards and represent it into plane.
     Args:
@@ -374,10 +369,9 @@ def encode_cards_conv(plane, cards):
         for i in range(layer + 1):
             plane[i][rank] = 1
         plane[0][rank] = 0
-"""
 
 
-def encode_cards_conv(plane, cards):
+def encode_cards_conv_4x15(plane, cards):
     #### change the card encoding for convolutional layers ####
     ''' Encode cards and represent it into plane.
     Args:
@@ -419,6 +413,94 @@ def encode_cards_conv(plane, cards):
         rank = CARD_RANK_STR.index(cards[-1])
         plane[layer][rank] = 1
     return plane
+
+
+def decode_cards_5x15(plane):
+    """
+    Decode cards from plane.
+    Get the string representation of cards from plane of state_obs.
+    :param
+    plane: state plane
+    :return:
+    (str) string representation of cards
+    """
+    plane = np.array(plane)
+    cards = ""
+
+    for i in range(15):
+        card_num = plane[:, i].tolist().index(1)
+
+        if card_num != 0:
+            for j in range(card_num):
+                cards = cards + INDEX_CARD_RANK_STR[i]
+    return cards
+
+
+def decode_card_4x15(plane):
+    """
+    Decode cards from plane.
+    Get the string representation of cards from plane of state_obs.
+    :param
+    plane: state plane
+    :return:
+    (str) string representation of cards
+    """
+    plane = np.array(plane)
+    cards = ""
+    for i in range(15):
+        if 1 not in plane[:, i]:
+            card_num = 0
+        else:
+            card_num = plane[:, i].tolist().index(1) + 1
+
+        if card_num != 0:
+            for j in range(card_num):
+                cards = cards + INDEX_CARD_RANK_STR[i]
+    return cards
+
+
+def decode_cards_conv_5x15(plane):
+    '''
+    Decode cards from plane.
+    Get the string representation of cards from plane of state_obs.
+    :param
+    plane: state plane
+    :return:
+    (str) string representation of cards
+    '''
+    plane = np.array(plane)
+    cards = ""
+
+    for i in range(15):
+        card_num = 0
+        if not plane[0, i] == 1:
+            card_num = sum(plane[:, i].tolist())
+
+        if card_num != 0:
+            for j in range(card_num):
+                cards = cards + INDEX_CARD_RANK_STR[i]
+    return cards
+
+
+def decode_cards_conv_4x15(plane):
+    """
+    Decode cards from plane.
+    Get the string representation of cards from plane of state_obs.
+    :param
+    plane: state plane
+    :return:
+    (str) string representation of cards
+    """
+    plane = np.array(plane)
+    cards = ""
+
+    for i in range(15):
+        card_num = sum(plane[:, i].tolist())
+
+        if card_num != 0:
+            for j in range(card_num):
+                cards = cards + INDEX_CARD_RANK_STR[i]
+    return cards
 
 
 def get_gt_cards(player, greater_player):
@@ -522,69 +604,3 @@ def opt_legal(legal_action):
             new_legal_action.append(card)
 
     return new_legal_action
-
-
-def decode_cards(plane):
-    """
-    Decode cards from plane.
-    Get the string representation of cards from plane of state_obs.
-    :param
-    plane: state plane
-    :return:
-    (str) string representation of cards
-    """
-    plane = np.array(plane)
-    cards = ""
-
-    for i in range(15):
-        card_num = plane[:, i].tolist().index(1)
-
-        if card_num != 0:
-            for j in range(card_num):
-                cards = cards + INDEX_CARD_RANK_STR[i]
-    return cards
-
-"""
-def decode_cards_conv(plane):
-    '''
-    Decode cards from plane.
-    Get the string representation of cards from plane of state_obs.
-    :param
-    plane: state plane
-    :return:
-    (str) string representation of cards
-    '''
-    plane = np.array(plane)
-    cards = ""
-
-    for i in range(15):
-        card_num = 0
-        if not plane[0, i] == 1:
-            card_num = sum(plane[:, i].tolist())
-
-        if card_num != 0:
-            for j in range(card_num):
-                cards = cards + INDEX_CARD_RANK_STR[i]
-    return cards
-"""
-
-
-def decode_cards_conv(plane):
-    """
-    Decode cards from plane.
-    Get the string representation of cards from plane of state_obs.
-    :param
-    plane: state plane
-    :return:
-    (str) string representation of cards
-    """
-    plane = np.array(plane)
-    cards = ""
-
-    for i in range(15):
-        card_num = sum(plane[:, i].tolist())
-
-        if card_num != 0:
-            for j in range(card_num):
-                cards = cards + INDEX_CARD_RANK_STR[i]
-    return cards

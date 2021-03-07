@@ -4,7 +4,8 @@ from datetime import datetime
 import torch
 
 # from envs.doudizhu_rlcard import DoudizhuEnv as Env
-from envs.mydoudizhu import DoudizhuEnv as Env
+#from envs.mydoudizhu_5x15 import DoudizhuEnv as Env
+from envs.mydoudizhu_4x15 import DoudizhuEnv as Env
 from utils.logger import Logger
 from utils_global import tournament
 
@@ -25,7 +26,7 @@ from agents.value_based.duel_dqn_agent import DQNAgent as RLAgent
 
 test_name = 'ddqn'
 eval_every = 400
-eval_num = 10
+eval_num = 1000
 episode_num = 40_000
 
 save_dir = f'./experiments/{test_name}/'
@@ -36,7 +37,7 @@ best_result = 0
 # Make environments to train and evaluate models
 config = {
     'seed': 0,
-    # add key 'use_conv' to config dict, if using mydoudizhu.py as env
+    # add key 'use_conv' to config dict, if using mydoudizhu_4x15.py as env
     # to indicate whether using state_encoding for fc_net or conv_net.
     'use_conv': True,
     'allow_step_back': True,
@@ -45,9 +46,10 @@ config = {
     'single_agent_mode': False,
     'active_player': None,
 }
+state_shape = [5, 4, 15]
 
-env = Env(config)
-eval_env = Env(config)
+env = Env(config, state_shape=state_shape)
+eval_env = Env(config, state_shape=state_shape)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -62,10 +64,8 @@ for i in range(env.player_num):
                           state_shape=env.state_shape,
                           lr=.00005,
                           soft_update=False,
-                          use_conv=True,
-                          dueling=True,
+                          deep_conv=True
                           ))
-
 env.set_agents(agents)
 eval_env.set_agents([agents[0], rule_agent, rule_agent])
 print(agents[0].local_net)
