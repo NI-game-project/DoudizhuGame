@@ -469,21 +469,21 @@ class DeepConvNet(nn.Module):
         self.state_shape = state_shape
         self.action_num = action_num
         super(DeepConvNet, self).__init__()
-        self.conv1 = nn.Conv2d(self.state_shape[0], 64, (1, 1), (1, 4))
-        self.conv2 = nn.Conv2d(self.state_shape[0], 64, (2, 1), (1, 4))
-        self.conv3 = nn.Conv2d(self.state_shape[0], 64, (3, 1), (1, 4))
-        self.conv4 = nn.Conv2d(self.state_shape[0], 64, (4, 1), (1, 4))
+        self.conv1 = nn.Conv2d(self.state_shape[0], 64, (1, 1), (4, 1))
+        self.conv2 = nn.Conv2d(self.state_shape[0], 64, (2, 1), (4, 1))
+        self.conv3 = nn.Conv2d(self.state_shape[0], 64, (3, 1), (4, 1))
+        self.conv4 = nn.Conv2d(self.state_shape[0], 64, (4, 1), (4, 1))
         self.conv_single_to_bomb = (self.conv1, self.conv2, self.conv3, self.conv4)
-        self.conv_straight = nn.Conv2d(state_shape[0], 64, (1, 15), 1)  # 64 * 4 * 1
-        self.pool = nn.MaxPool2d((1, 4))  # 64 * 15 * 1
+        self.conv_straight = nn.Conv2d(state_shape[0], 64, (1, 15), 1)
+        self.pool = nn.MaxPool2d((4, 1))
         self.drop = nn.Dropout(0.2)
-        self.fc1 = nn.Linear(64 * (4 + 10), 512)
+        self.fc1 = nn.Linear(64 * (4 + 15), 512)
         self.fc2 = nn.Linear(512, self.action_num)
 
     def forward(self, state):
-        # 64 * 10 * 4
-        x = torch.cat([f(state) for f in self.conv_single_to_bomb], -2)  # 64 * 10 * 4
-        # 64 * 10 * 1
+        # 64 * 4 * 15
+        x = torch.cat([f(state) for f in self.conv_single_to_bomb], -2)
+        # 64 * 1 * 15
         x = self.pool(x)
         x = x.view(state.shape[0], -1)
 
@@ -493,7 +493,7 @@ class DeepConvNet(nn.Module):
 
         x = torch.cat([x, x_straight], -1)
 
-        # x = self.drop(x)
+        #x = self.drop(x)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
