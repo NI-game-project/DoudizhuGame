@@ -2,7 +2,7 @@
 '''
 Implement Doudizhu Game class
 '''
-
+import numpy as np
 import functools
 from heapq import merge
 from doudizhu.utils import cards2str, doudizhu_sort_card
