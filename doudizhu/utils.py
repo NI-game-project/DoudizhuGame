@@ -38,7 +38,7 @@ CARD_RANK_STR_INDEX = {'3': 0, '4': 1, '5': 2, '6': 3, '7': 4,
                        'K': 10, 'A': 11, '2': 12, 'B': 13, 'R': 14}
 
 INDEX_CARD_RANK_STR = {0: '3', 1: '4', 2: '5', 3: '6', 4: '7',
-                       5: '8', 6: '9', 7: 'T', 8: 'J', 9: 'Q', 
+                       5: '8', 6: '9', 7: 'T', 8: 'J', 9: 'Q',
                        10: 'K', 11: 'A', 12: '2', 13: 'B', 14: 'R'}
 # rank list
 CARD_RANK = ['3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K',
@@ -402,7 +402,7 @@ def encode_cards_conv_4x15(plane, cards):
         for index, card in enumerate(cards):
             if index == 0:
                 continue
-            if card == cards[index-1]:
+            if card == cards[index - 1]:
                 rank = CARD_RANK_STR.index(cards[index - 1])
                 plane[layer][rank] = 1
                 layer += 1
@@ -604,3 +604,48 @@ def opt_legal(legal_action):
             new_legal_action.append(card)
 
     return new_legal_action
+
+
+def get_hand_length(state):
+    # calculate the length of each player's current hand using trace
+    # just for encoding the state, kind of a naive approach,
+    # but we don't need to mess up with the state of different player or env.py
+
+    landlord_hand_length = 0
+    p1_hand_length = 0
+    p2_hand_length = 0
+    for action in (state['trace']):
+        if action[0] == 0:
+            if action[1] != 'pass':
+                landlord_hand_length += len(action[1])
+        elif action[0] == 1:
+            if action[1] != 'pass':
+                p1_hand_length += len(action[1])
+        elif action[0] == 2:
+            if action[1] != 'pass':
+                p2_hand_length += len(action[1])
+
+    # if the hand length is larger than 15, set it to 15 to match the shape of the state, since 15 or larger than
+    # 15 won't really make a difference.
+    landlord_hand_length = min((20 - landlord_hand_length), 15)
+    p1_hand_length = min((17 - p1_hand_length), 15)
+    p2_hand_length = min((17 - p2_hand_length), 15)
+    return landlord_hand_length, p1_hand_length, p2_hand_length
+
+
+def get_history(state):
+    # get the played_cards(i.e., all cards that a player has played) of each player(0, 1, 2)
+    # using trace from state_obs
+    trace = state['trace']
+    history = ['' for i in range(3)]
+    played_cards = [[] for i in range(3)]
+    for i in range(len(trace) - 1, -1, -1):
+        _id, action = trace[i]
+        if action == 'pass':
+            continue
+        played_cards[_id] += action
+    for i in range(3):
+        played_cards[i].sort(key=lambda x: CARD_RANK_STR_INDEX.get(x[0]))
+        history[i] = history[i].join(played_cards[i])
+
+    return history

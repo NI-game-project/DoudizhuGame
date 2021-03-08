@@ -1,9 +1,5 @@
-from doudizhu.utils import show_card
 from utils import seeding
 from utils_global import *
-
-import numpy as np
-from numpy.random import RandomState
 
 
 class Env(object):

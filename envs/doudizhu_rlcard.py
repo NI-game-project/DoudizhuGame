@@ -10,10 +10,10 @@ class DoudizhuEnv(Env):
     def __init__(self, config):
         from doudizhu.utils import SPECIFIC_MAP, CARD_RANK_STR
         from doudizhu.utils import ACTION_LIST, ACTION_SPACE
-        from doudizhu.utils import encode_cards
+        from doudizhu.utils import encode_cards_5x15
         from doudizhu.utils import cards2str, cards2str_with_suit
         from doudizhu.game import DoudizhuGame
-        self._encode_cards = encode_cards
+        self._encode_cards = encode_cards_5x15
         self._cards2str = cards2str
         self._cards2str_with_suit = cards2str_with_suit
         self._SPECIFIC_MAP = SPECIFIC_MAP

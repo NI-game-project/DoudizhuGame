@@ -5,7 +5,6 @@ Implement Doudizhu Game class
 
 import functools
 from heapq import merge
-import numpy as np
 from doudizhu.utils import cards2str, doudizhu_sort_card
 from doudizhu.player import DoudizhuPlayer as Player
 from doudizhu.round import DoudizhuRound as Round
@@ -213,18 +212,5 @@ class DoudizhuGame(object):
             if payoff[i] == 1:
                 return i
 
-
-if __name__ == '__main__':
-    import numpy as np
-    doudizhu = DoudizhuGame()
-    state, player_id = doudizhu.init_game()
-    print(state)
-    while not doudizhu.is_over():
-        action = np.random.choice(list(state['actions']))
-        print(action)
-        state, next_player_id = doudizhu.step(action)
-        print(state)
-    print(doudizhu.get_payoffs())
-    print(doudizhu.get_winner_id())
 
 

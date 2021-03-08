@@ -1,5 +1,6 @@
 import numpy as np
 from envs.env import Env
+from doudizhu.utils import get_hand_length
 
 
 class DoudizhuEnv(Env):
@@ -48,7 +49,7 @@ class DoudizhuEnv(Env):
 
         obs = np.zeros(tuple(self.state_shape), dtype=int)
         # calculate the length of the each player's hand using 'trace' of the state_obs
-        ll_hand_length, p1_hand_length, p2_hand_length = self.get_hand_length(state)
+        ll_hand_length, p1_hand_length, p2_hand_length = get_hand_length(state)
         for index in range(5):
             obs[index][0] = np.ones(15, dtype=int)
         self._encode_cards(obs[0], state['current_hand'])
@@ -178,33 +179,6 @@ class DoudizhuEnv(Env):
         state['current_player'] = self.game.round.current_player
         state['legal_actions'] = self.game.state['actions']
         return state
-
-    def get_hand_length(self, state):
-        # calculate the length of each player's current hand using trace
-        # just for encoding the state, kind of a naive approach,
-        # but we don't need to mess up with the state of different player or env.py
-
-        landlord_hand_length = 0
-        p1_hand_length = 0
-        p2_hand_length = 0
-        for action in (state['trace']):
-            if action[0] == 0:
-                if action[1] != 'pass':
-                    landlord_hand_length += len(action[1])
-            elif action[0] == 1:
-                if action[1] != 'pass':
-                    p1_hand_length += len(action[1])
-            elif action[0] == 2:
-                if action[1] != 'pass':
-                    p2_hand_length += len(action[1])
-
-        # if the hand length is larger than 15, set it to 15 to match the shape of the state, since 15 or larger than
-        # 15 won't really make a difference.
-        landlord_hand_length = min((20 - landlord_hand_length), 15)
-        p1_hand_length = min((17 - p1_hand_length), 15)
-        p2_hand_length = min((17 - p2_hand_length), 15)
-        return landlord_hand_length, p1_hand_length, p2_hand_length
-
 
 
 

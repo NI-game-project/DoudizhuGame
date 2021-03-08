@@ -18,10 +18,10 @@ from agents.non_rl.rule_based_agent import DouDizhuRuleAgentV1 as RuleAgent
 ### rl_agents for training ###
 ### uncomment these lines to import different Agent for training
 # from agents.value_based.per_dqn_agent import PERDQNAgent as RLAgent
-from agents.value_based.duel_dqn_agent import DQNAgent as RLAgent
+#from agents.value_based.duel_dqn_agent import DQNAgent as RLAgent
 # from agents.value_based.C51_dqn_agent import C51DQNAgent as RLAgent
 # from agents.value_based.n_step_dqn_agent import NStepDQNAgent as RLAgent
-# from agents.value_based.noisy_dqn_agent import NoisyDQNAgent as RLAgent
+from agents.value_based.noisy_dqn_agent import NoisyDQNAgent as RLAgent
 #from agents.value_based.rainbow_agent import RainbowAgent as RLAgent
 
 test_name = 'ddqn'
@@ -46,8 +46,9 @@ config = {
     'single_agent_mode': False,
     'active_player': None,
 }
-state_shape = [5, 4, 15]
-
+state_shape = [4, 4, 15]
+# add param state_shape to the environment
+# to indicate which state_shape(simple/complicated, w/o cooperation) is used for training
 env = Env(config, state_shape=state_shape)
 eval_env = Env(config, state_shape=state_shape)
 
@@ -63,8 +64,6 @@ for i in range(env.player_num):
     agents.append(RLAgent(num_actions=env.action_num,
                           state_shape=env.state_shape,
                           lr=.00005,
-                          soft_update=False,
-                          deep_conv=True
                           ))
 env.set_agents(agents)
 eval_env.set_agents([agents[0], rule_agent, rule_agent])
@@ -77,12 +76,12 @@ start = timeit.default_timer()
 for episode in range(episode_num):
     # get transitions by playing an episode in envs
     trajectories, _ = env.run(is_training=True)
-    # train the agent in self_play mode
+    # add transition to agents' replay memory and train the agents in self_play mode
     for i in range(env.player_num):
         for trajectory in trajectories[i]:
             agents[i].add_transition(trajectory)
 
-    # evaluate against random agent
+    # evaluate against rule_based agent
     if episode % eval_every == 0:
         result, states = tournament(eval_env, eval_num, agents[0])
         logger.log_performance(episode, result[0], agents[0].loss, states[0][-1][0]['raw_obs'],
