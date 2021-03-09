@@ -38,6 +38,7 @@ class DoudizhuEnv(Env):
         Returns:
             numpy array:  n*5*15 array:
                             n=4: cur_hand, others_hand, last_2_actions
+                            n=6: cur_hand, others_hand, last_2_actions, role, hand_length
                             n=7: cur_hand, others_hand, last_2_actions, hist_3
                             n=9: cur_hand, others_hand, last_2_actions, hist_3, role, hand_length
 
