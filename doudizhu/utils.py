@@ -630,7 +630,7 @@ def get_hand_length(state):
     landlord_hand_length = min((20 - landlord_hand_length), 15)
     p1_hand_length = min((17 - p1_hand_length), 15)
     p2_hand_length = min((17 - p2_hand_length), 15)
-    return landlord_hand_length, p1_hand_length, p2_hand_length
+    return [landlord_hand_length, p1_hand_length, p2_hand_length]
 
 
 def get_history(state):

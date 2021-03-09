@@ -44,9 +44,9 @@ class DoudizhuEnv(Env):
                             current hand
                             the union of the other two players' hand
                             the recent two actions
-                            a history of player0, 1, 2
+                            a history(played cards) of current, next, over next player
                             player's role: 0s if landlord, -1s for up peasant, 1s for down peasant
-                            current hand_length of all players, in the order(landlord, peasant1, peasant2)
+                            current hand_length of current, next, over next player
 
         '''
 
@@ -103,29 +103,26 @@ class DoudizhuEnv(Env):
         hist = np.zeros((3, self.state_shape[1], self.state_shape[2]), int)
         history = get_history(state)
         for i in range(self.player_num):
-            self._encode_cards(hist[i], history[i])
+            self._encode_cards(hist[i], history[(state['self'] + i + 3) % 3])
         return hist
 
     def state_role(self, state):
         role = np.zeros(self.state_shape[1:], int)
         if state['self'] == 0:
-            role[:] = np.ones(15, dtype=int)
-        elif state['self'] == 1:
             role[:] = np.zeros(15, dtype=int)
+        elif state['self'] == 1:
+            role[:] = np.ones(15, dtype=int)
         elif state['self'] == 2:
             role[:] = np.ones(15, dtype=int) * -1
         return np.expand_dims(role, 0)
 
     def state_hand_length(self, state):
 
-        ll_hand_length, p1_hand_length, p2_hand_length = get_hand_length(state)
+        left_cards = get_hand_length(state)
         hand_length = np.zeros(self.state_shape[1:], int)
-        for i in range(ll_hand_length):
-            hand_length[0][i] = 1
-        for i in range(p1_hand_length):
-            hand_length[1][i] = 1
-        for i in range(p2_hand_length):
-            hand_length[2][i] = 1
+        for i in range(self.player_num):
+            for j in range(left_cards[(state['self'] + i) % 3]):
+                hand_length[i][j] = 1
         return np.expand_dims(hand_length, 0)
 
     def get_payoffs(self):
