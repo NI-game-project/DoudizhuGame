@@ -225,7 +225,7 @@ def get_all_comb(legal_cards, cards):
 def decomposition(card_str):
     # get all comb of hand
     hands = ALL_ACTIONS
-    # filter out actions which have length bigger than 20 and sort all the actions
+    # kernels out actions which have length bigger than 20 and sort all the actions
     hands = filter(lambda item: len(item) <= 20, hands)
     hands = sorted(hands, key=lambda i: len(i), reverse=True)
     # get all possible combination of cards

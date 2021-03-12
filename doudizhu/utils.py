@@ -236,53 +236,53 @@ def contains_cards(candidate, target):
     return True
 
 
-def encode_cards_5x15(plane, cards):
-    '''
-    Encode cards and represent it into plane.
+# def encode_cards_5x15(plane, cards):
+#     '''
+#     Encode cards and represent it into plane.
+#
+#     Args:
+#         cards (list or str): list or str of cards, every entry is a
+#     character of solo representation of card
+#
+#     column: rank of the cards(in the order: 3456789TJQK2BR)
+#     row: number of cards player has for a certain rank (0, 1, 2, 3, 4)
+#
+#     e.g.,
+#     '6788889JQQKK222':
+#     [[1 1 1 0 0 0 0 1 0 0 0 1 0 1 1]
+#      [0 0 0 1 1 0 1 0 1 0 0 0 0 0 0]
+#      [0 0 0 0 0 0 0 0 0 1 1 0 0 0 0]
+#      [0 0 0 0 0 0 0 0 0 0 0 0 1 0 0]
+#      [0 0 0 0 0 1 0 0 0 0 0 0 0 0 0]]
+#
+#      if player has '8888': in 6th column only 5th row is 1, rest are 0s. Note: 1st row of any rank of card is 1 iff
+#      player does not have that card at all.
+#     '''
+#
+#     if not cards:
+#         return None
+#     layer = 1
+#     if len(cards) == 1:
+#         rank = CARD_RANK_STR.index(cards[0])
+#         plane[layer][rank] = 1
+#         plane[0][rank] = 0
+#     else:
+#         for index, card in enumerate(cards):
+#             if index == 0:
+#                 continue
+#             if card == cards[index - 1]:
+#                 layer += 1
+#             else:
+#                 rank = CARD_RANK_STR.index(cards[index - 1])
+#                 plane[layer][rank] = 1
+#                 layer = 1
+#                 plane[0][rank] = 0
+#         rank = CARD_RANK_STR.index(cards[-1])
+#         plane[layer][rank] = 1
+#         plane[0][rank] = 0
+#
 
-    Args:
-        cards (list or str): list or str of cards, every entry is a
-    character of solo representation of card
-
-    column: rank of the cards(in the order: 3456789TJQK2BR)
-    row: number of cards player has for a certain rank (0, 1, 2, 3, 4)
-
-    e.g.,
-    '6788889JQQKK222':
-    [[1 1 1 0 0 0 0 1 0 0 0 1 0 1 1]
-     [0 0 0 1 1 0 1 0 1 0 0 0 0 0 0]
-     [0 0 0 0 0 0 0 0 0 1 1 0 0 0 0]
-     [0 0 0 0 0 0 0 0 0 0 0 0 1 0 0]
-     [0 0 0 0 0 1 0 0 0 0 0 0 0 0 0]]
-
-     if player has '8888': in 6th column only 5th row is 1, rest are 0s. Note: 1st row of any rank of card is 1 iff
-     player does not have that card at all.
-    '''
-
-    if not cards:
-        return None
-    layer = 1
-    if len(cards) == 1:
-        rank = CARD_RANK_STR.index(cards[0])
-        plane[layer][rank] = 1
-        plane[0][rank] = 0
-    else:
-        for index, card in enumerate(cards):
-            if index == 0:
-                continue
-            if card == cards[index - 1]:
-                layer += 1
-            else:
-                rank = CARD_RANK_STR.index(cards[index - 1])
-                plane[layer][rank] = 1
-                layer = 1
-                plane[0][rank] = 0
-        rank = CARD_RANK_STR.index(cards[-1])
-        plane[layer][rank] = 1
-        plane[0][rank] = 0
-
-
-def encode_cards_4x15(plane, cards):
+def encode_cards(plane, cards):
     '''
     Encode cards and represent it into plane.
 
@@ -323,55 +323,55 @@ def encode_cards_4x15(plane, cards):
         plane[layer][rank] = 1
     return plane
 
+#
+# def encode_cards_conv_5x15(plane, cards):
+#     #### change the card encoding for convolutional layers ####
+#     ''' Encode cards and represent it into plane.
+#     Args:
+#         cards (list or str): list or str of cards, every entry is a
+#     character of solo representation of card
+#
+#     column: rank of the cards(in the order: 3456789TJQK2BR)
+#     row: if the player has a certain number of cards for a certain rank (0, 1, 2, 3, 4)
+#
+#     e.g.,
+#     '6788889JQQKK222':
+#     [[1 1 1 0 0 0 0 1 0 0 0 1 0 1 1]
+#      [0 0 0 1 1 1 1 0 1 1 1 0 1 0 0]
+#      [0 0 0 0 0 1 0 0 0 1 1 0 1 0 0]
+#      [0 0 0 0 0 1 0 0 0 0 0 0 1 0 0]
+#      [0 0 0 0 0 1 0 0 0 0 0 0 0 0 0]]
+#
+#     if player has '8888': in 6th column 2-5th row are 1s, and 1st row is 0.
+#     Note: 1st row of any rank of card is 1 iff player does not have that card at all.
+#     '''
+#
+#     if not cards:
+#         return None
+#     layer = 1
+#     if len(cards) == 1:
+#         rank = CARD_RANK_STR.index(cards[0])
+#         plane[layer][rank] = 1
+#         plane[0][rank] = 0
+#     else:
+#         for index, card in enumerate(cards):
+#             if index == 0:
+#                 continue
+#             if card == cards[index - 1]:
+#                 layer += 1
+#             else:
+#                 rank = CARD_RANK_STR.index(cards[index - 1])
+#                 for i in range(layer + 1):
+#                     plane[i][rank] = 1
+#                 layer = 1
+#                 plane[0][rank] = 0
+#         rank = CARD_RANK_STR.index(cards[-1])
+#         for i in range(layer + 1):
+#             plane[i][rank] = 1
+#         plane[0][rank] = 0
 
-def encode_cards_conv_5x15(plane, cards):
-    #### change the card encoding for convolutional layers ####
-    ''' Encode cards and represent it into plane.
-    Args:
-        cards (list or str): list or str of cards, every entry is a
-    character of solo representation of card
 
-    column: rank of the cards(in the order: 3456789TJQK2BR)
-    row: if the player has a certain number of cards for a certain rank (0, 1, 2, 3, 4)
-
-    e.g.,
-    '6788889JQQKK222':
-    [[1 1 1 0 0 0 0 1 0 0 0 1 0 1 1]
-     [0 0 0 1 1 1 1 0 1 1 1 0 1 0 0]
-     [0 0 0 0 0 1 0 0 0 1 1 0 1 0 0]
-     [0 0 0 0 0 1 0 0 0 0 0 0 1 0 0]
-     [0 0 0 0 0 1 0 0 0 0 0 0 0 0 0]]
-
-    if player has '8888': in 6th column 2-5th row are 1s, and 1st row is 0.
-    Note: 1st row of any rank of card is 1 iff player does not have that card at all.
-    '''
-
-    if not cards:
-        return None
-    layer = 1
-    if len(cards) == 1:
-        rank = CARD_RANK_STR.index(cards[0])
-        plane[layer][rank] = 1
-        plane[0][rank] = 0
-    else:
-        for index, card in enumerate(cards):
-            if index == 0:
-                continue
-            if card == cards[index - 1]:
-                layer += 1
-            else:
-                rank = CARD_RANK_STR.index(cards[index - 1])
-                for i in range(layer + 1):
-                    plane[i][rank] = 1
-                layer = 1
-                plane[0][rank] = 0
-        rank = CARD_RANK_STR.index(cards[-1])
-        for i in range(layer + 1):
-            plane[i][rank] = 1
-        plane[0][rank] = 0
-
-
-def encode_cards_conv_4x15(plane, cards):
+def encode_cards_conv(plane, cards):
     #### change the card encoding for convolutional layers ####
     ''' Encode cards and represent it into plane.
     Args:
@@ -414,29 +414,29 @@ def encode_cards_conv_4x15(plane, cards):
         plane[layer][rank] = 1
     return plane
 
+#
+# def decode_cards_5x15(plane):
+#     """
+#     Decode cards from plane.
+#     Get the string representation of cards from plane of state_obs.
+#     :param
+#     plane: state plane
+#     :return:
+#     (str) string representation of cards
+#     """
+#     plane = np.array(plane)
+#     cards = ""
+#
+#     for i in range(15):
+#         card_num = plane[:, i].tolist().index(1)
+#
+#         if card_num != 0:
+#             for j in range(card_num):
+#                 cards = cards + INDEX_CARD_RANK_STR[i]
+#     return cards
 
-def decode_cards_5x15(plane):
-    """
-    Decode cards from plane.
-    Get the string representation of cards from plane of state_obs.
-    :param
-    plane: state plane
-    :return:
-    (str) string representation of cards
-    """
-    plane = np.array(plane)
-    cards = ""
 
-    for i in range(15):
-        card_num = plane[:, i].tolist().index(1)
-
-        if card_num != 0:
-            for j in range(card_num):
-                cards = cards + INDEX_CARD_RANK_STR[i]
-    return cards
-
-
-def decode_card_4x15(plane):
+def decode_card(plane):
     """
     Decode cards from plane.
     Get the string representation of cards from plane of state_obs.
@@ -458,31 +458,31 @@ def decode_card_4x15(plane):
                 cards = cards + INDEX_CARD_RANK_STR[i]
     return cards
 
+#
+# def decode_cards_conv_5x15(plane):
+#     '''
+#     Decode cards from plane.
+#     Get the string representation of cards from plane of state_obs.
+#     :param
+#     plane: state plane
+#     :return:
+#     (str) string representation of cards
+#     '''
+#     plane = np.array(plane)
+#     cards = ""
+#
+#     for i in range(15):
+#         card_num = 0
+#         if not plane[0, i] == 1:
+#             card_num = sum(plane[:, i].tolist())
+#
+#         if card_num != 0:
+#             for j in range(card_num):
+#                 cards = cards + INDEX_CARD_RANK_STR[i]
+#     return cards
 
-def decode_cards_conv_5x15(plane):
-    '''
-    Decode cards from plane.
-    Get the string representation of cards from plane of state_obs.
-    :param
-    plane: state plane
-    :return:
-    (str) string representation of cards
-    '''
-    plane = np.array(plane)
-    cards = ""
 
-    for i in range(15):
-        card_num = 0
-        if not plane[0, i] == 1:
-            card_num = sum(plane[:, i].tolist())
-
-        if card_num != 0:
-            for j in range(card_num):
-                cards = cards + INDEX_CARD_RANK_STR[i]
-    return cards
-
-
-def decode_cards_conv_4x15(plane):
+def decode_cards_conv(plane):
     """
     Decode cards from plane.
     Get the string representation of cards from plane of state_obs.

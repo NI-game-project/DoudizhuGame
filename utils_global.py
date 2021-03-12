@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 
 from doudizhu.utils import INDEX_CARD_RANK_STR
 from envs.core import Card, Player
@@ -366,6 +367,16 @@ def remove_illegal(action_probs, legal_actions):
     else:
         probs /= sum(probs)
     return probs
+
+
+def action_mask(action_num, q_values, legal_actions):
+    if len(legal_actions) == 0:
+        return q_values
+    else:
+        masked_q_values = torch.ones(action_num) * (-float('inf'))
+        masked_q_values[legal_actions] = q_values[legal_actions]
+
+    return masked_q_values
 
 
 def assign_task(task_num, process_num):

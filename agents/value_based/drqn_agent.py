@@ -97,7 +97,7 @@ class DRQNAgent:
             state_obs = torch.FloatTensor(state['obs']).view(1, -1).to(self.device)
             legal_actions = state['legal_actions']
             # calculate a softmax distribution over the q_values for all actions
-            # q_vals = self.local_net(state_obs).cpu().detach().numpy()
+            # q_vals = self.online_net(state_obs).cpu().detach().numpy()
             softmax_q_vals = self.softmax(self.q_net(state_obs))[0][0].cpu().detach().numpy()
             predicted_action = np.argmax(softmax_q_vals)
             probs = remove_illegal(softmax_q_vals, legal_actions)
@@ -230,7 +230,7 @@ class DRQNAgent:
             filepath (str): string filepath to save agent parameters at
         """
         state_dict = dict()
-        state_dict['local_net'] = self.q_net.state_dict()
+        state_dict['online_net'] = self.q_net.state_dict()
         state_dict['target_net'] = self.target_net.state_dict()
 
         torch.save(state_dict, filepath)
@@ -242,7 +242,7 @@ class DRQNAgent:
             filepath (str): string filepath to load agent parameters from
         """
         state_dict = torch.load(filepath, map_location=self.device)
-        self.q_net.load_state_dict(state_dict['local_net'])
+        self.q_net.load_state_dict(state_dict['online_net'])
         self.target_net.load_state_dict(state_dict['target_net'])
 
 

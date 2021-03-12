@@ -1,72 +1,13 @@
 from collections import namedtuple, deque
 import random
 import numpy as np
+import torch
 
-Transition = namedtuple('Transition', ['state', 'action', 'reward', 'next_state', 'done'])
+Transition_ = namedtuple('Transition', ['state', 'legal_actions', 'action', 'reward',
+                                        'next_state', 'next_legal_actions', 'done'])
 
 
 class BasicBuffer(object):
-    """
-    Memory for saving transitions
-    """
-
-    def __init__(self, memory_size, batch_size):
-        """
-            Initialize
-            Args:
-            memory_size (int): the size of the memory buffer
-        """
-
-        self.memory_size = memory_size
-        self.batch_size = batch_size
-        self.memory = []
-
-    def save(self, state, action, reward, next_state, done):
-        """
-            Save transition into memory
-
-            Args:
-                state (numpy.array): the current state
-                action (int): the performed action ID
-                reward (float): the reward received
-                next_state (numpy.array): the next state after performing the action
-                done (boolean): whether the episode is finished
-        """
-
-        if len(self.memory) == self.memory_size:
-            self.memory.pop(0)
-        transition = Transition(state, action, reward, next_state, done)
-        self.memory.append(transition)
-
-    def sample(self):
-        """
-            Sample a minibatch from the replay memory
-
-            Returns:
-                state_batch (list): a batch of states
-                action_batch (list): a batch of actions
-                reward_batch (list): a batch of rewards
-                next_state_batch (list): a batch of states
-                done_batch (list): a batch of dones
-        """
-        # TODO: Add legal_action_batch to the memory --done -> BasicBufferWithLegalActions
-        samples = random.sample(self.memory, self.batch_size)
-        return map(np.array, zip(*samples))
-
-    def clear(self):
-        self.memory = []
-
-    def __len__(self):
-        return len(self.memory)
-
-    def __iter__(self):
-        return iter(self.memory)
-
-
-Transition_ = namedtuple('Transition', ['state', 'legal_actions', 'action', 'reward', 'next_state', 'done'])
-
-
-class BasicBufferWithLegalActions(object):
     """
     Memory for saving transitions
     Add legal_actions to buffer used to calculate penalty(if predicting illegal actions) for network
@@ -83,22 +24,23 @@ class BasicBufferWithLegalActions(object):
         self.batch_size = batch_size
         self.memory = []
 
-    def save(self, state, legal_actions, action, reward, next_state, done):
+    def save(self, state, legal_actions, action, reward, next_state, next_legal_actions, done):
         """
             Save transition into memory
 
             Args:
                 state (numpy.array): the current state
-                legal_actions (list): a list of legal actions - for calculating bonus for the network
+                legal_actions (list): a list of legal actions for state
                 action (int): the performed action ID
                 reward (float): the reward received
                 next_state (numpy.array): the next state after performing the action
+                next_legal_actions (list): a list of legal actions for next_state
                 done (boolean): whether the episode is finished
         """
 
         if len(self.memory) == self.memory_size:
             self.memory.pop(0)
-        transition = Transition_(state, legal_actions, action, reward, next_state, done)
+        transition = Transition_(state, legal_actions, action, reward, next_state, next_legal_actions, done)
         self.memory.append(transition)
 
     def sample(self):
@@ -107,10 +49,11 @@ class BasicBufferWithLegalActions(object):
 
             Returns:
                 state_batch (list): a batch of states
-                legal_actions(list): a batch of legal_actions
+                legal_actions(list): a batch of legal_actions for state
                 action_batch (list): a batch of actions
                 reward_batch (list): a batch of rewards
                 next_state_batch (list): a batch of states
+                next_legal_actions(list): a batch of legal_actions for next_state
                 done_batch (list): a batch of dones
         """
 
@@ -132,6 +75,7 @@ class SequentialMemory(object):
         sequential memory implementation for recurrent q network
         save a series of transitions to use as training examples for the recurrent network
     """
+
     def __init__(self, max_size, batch_size):
         self.max_size = max_size
         self.batch_size = batch_size
@@ -151,6 +95,7 @@ class ReservoirMemoryBuffer(object):
     Save a series of state action pairs to use in training of average policy network
     For supervised learning data (state, action) pairs in NFSPAgent
     """
+
     def __init__(self, max_size, batch_size, rep_prob=0.25):
         self.max_size = max_size
         self.batch_size = batch_size
@@ -167,6 +112,7 @@ class ReservoirMemoryBuffer(object):
             if idx < self.max_size:
                 self.memory[idx] = (state, action)
         self.add_ += 1
+
     """
     def add_sa(self, state, action):
         # Reservoir sampling implementation with exponential bias toward newer examples(in NFSP paper). rep_prob=0.25
@@ -178,6 +124,7 @@ class ReservoirMemoryBuffer(object):
             i = int(np.random.uniform() * self.max_size)
             self.memory[i] = (state, action)
     """
+
     def sample(self):
         return random.sample(self.memory, self.batch_size)
 
@@ -206,82 +153,29 @@ class NStepBuffer(object):
         self.n_step_buffer = deque(maxlen=self.n_step)
 
     def _get_n_step_info(self):
-        reward, next_state, done = self.n_step_buffer[-1][-3:]
-        for _, _, rewards, next_states, done in reversed(list(self.n_step_buffer)[: -1]):
+        reward, next_state, _, done = self.n_step_buffer[-1][-4:]
+
+        for _, _, _, rewards, next_states, _, done in reversed(list(self.n_step_buffer)[: -1]):
             reward = rewards + self.gamma * reward * (1 - done)
             next_state, done = (next_states, done) if done else (next_state, done)
         return reward, next_state, done
 
-    def save(self, state, action, reward, next_state, done):
+    def save(self, state, legal_actions, action, reward, next_state, next_legal_actions, done):
         state = np.expand_dims(state, 0)
         next_state = np.expand_dims(next_state, 0)
 
-        self.n_step_buffer.append([state, action, reward, next_state, done])
+        self.n_step_buffer.append([state, legal_actions, action, reward, next_state, next_legal_actions, done])
         if len(self.n_step_buffer) < self.n_step:
             return
         reward, next_state, done = self._get_n_step_info()
-        state, action = self.n_step_buffer[0][: 2]
-        self.memory.append([state, action, reward, next_state, done])
+        state, _, action = self.n_step_buffer[0][: 3]
+        self.memory.append([state, legal_actions, action, reward, next_state, next_legal_actions, done])
 
     def sample(self):
         samples = random.sample(self.memory, self.batch_size)
-        state, action, reward, next_state, done = zip(*samples)
-        return np.concatenate(state, 0), action, reward, np.concatenate(next_state, 0), done
-
-    def __len__(self):
-        return len(self.memory)
-
-
-class PrioritizedBuffer:
-    def __init__(self, capacity, batch_size, alpha=0.6, beta=0.4, beta_increment=0.001):
-        self.capacity = capacity
-        self.batch_size = batch_size
-        self.alpha = alpha
-        self.beta = beta
-        self.beta_increment = beta_increment
-        self.pos = 0
-        self.memory = []
-        self.priorities = np.zeros([self.capacity], dtype=np.float32)
-
-    def save(self, state, action, reward, next_state, done):
-        state = np.expand_dims(state, 0)
-        next_state = np.expand_dims(next_state, 0)
-
-        max_prior = np.max(self.priorities) if self.memory else 1.0
-
-        if len(self.memory) < self.capacity:
-            self.memory.append([state, action, reward, next_state, done])
-        else:
-            self.memory[self.pos] = [state, action, reward, next_state, done]
-        self.priorities[self.pos] = max_prior
-        self.pos += 1
-        self.pos = self.pos % self.capacity
-
-    def sample(self):
-        if len(self.memory) < self.capacity:
-            probs = self.priorities[: len(self.memory)]
-        else:
-            probs = self.priorities
-
-        probs = probs ** self.alpha
-        probs = probs / np.sum(probs)
-
-        indices = np.random.choice(len(self.memory), self.batch_size, p=probs)
-        samples = [self.memory[idx] for idx in indices]
-
-        weights = (len(self.memory) * probs[indices]) ** (-self.beta)
-
-        if self.beta < 1:
-            self.beta += self.beta_increment
-        weights = weights / np.max(weights)
-        weights = np.array(weights, dtype=np.float32)
-
-        state, action, reward, next_state, done = zip(* samples)
-        return np.concatenate(state, 0), action, reward, np.concatenate(next_state, 0), done, indices, weights
-
-    def update_priorities(self, indices, priorities):
-        for idx, priority in zip(indices, priorities):
-            self.priorities[idx] = priority
+        state, legal_actions, action, reward, next_state, next_legal_actions, done = zip(*samples)
+        return np.concatenate(state, 0), legal_actions, action, reward, \
+               np.concatenate(next_state, 0), next_legal_actions, done
 
     def __len__(self):
         return len(self.memory)
@@ -354,8 +248,7 @@ class SumTree:
         return np.max(self.tree[-self.capacity:])
 
 
-class PrioritizedBufferWithSumTree:
-
+class PrioritizedBuffer:
     # Epsilon ϵ is a small positive constant that ensures that no transition has zero priority.
     epsilon = 0.01
     # Alpha(0≤α≤1), controls the difference between high and low error. It determines how much prioritization is used.
@@ -371,19 +264,19 @@ class PrioritizedBufferWithSumTree:
         # build a SumTree
         self.tree = SumTree(self.capacity)
 
-    def save(self, state, action, reward, next_state, done):
+    def save(self, state, legal_actions, action, reward, next_state, next_legal_actions, done):
         # new experiences are first stored in the tree with max priority
         # untrained neural network is likely to return a value around zero for every input,
         # The error in this case is simply the reward experienced in a given sample
         max_priority = self.tree.max_p
         if max_priority == 0:
             max_priority = self.max_error
-        experience = (state, action, reward, next_state, done)
+        experience = (state, legal_actions, action, reward, next_state, next_legal_actions, done)
         self.tree.add(max_priority, experience)
 
     def sample(self):
         batch = []
-        idxs = np.empty((self.batch_size, ), dtype=np.int32)
+        idxs = np.empty((self.batch_size,), dtype=np.int32)
         is_weights = np.empty((self.batch_size, 1), dtype=np.float32)
         # split the total priority into batch-sized segments
         priority_segment = self.tree.total_priority / self.batch_size
@@ -392,7 +285,7 @@ class PrioritizedBufferWithSumTree:
 
         for i in range(self.batch_size):
             # calculate priority value for each segment to get corresponding experiences
-            a, b = priority_segment * i, priority_segment * (i+1)
+            a, b = priority_segment * i, priority_segment * (i + 1)
             v = np.random.uniform(a, b)
             idx, priority, data = self.tree.get_leaf(v)
 
@@ -408,20 +301,25 @@ class PrioritizedBufferWithSumTree:
             experience = data
             batch.append(experience)
         state_batch = []
+        legal_actions_batch = []
         action_batch = []
         reward_batch = []
         next_state_batch = []
+        next_legal_actions_batch = []
         done_batch = []
 
         for transition in batch:
-            state, action, reward, next_state, done = transition
+            state, legal_action, action, reward, next_state, next_legal_action, done = transition
             state_batch.append(state)
+            legal_actions_batch.append(legal_action)
             action_batch.append(action)
             reward_batch.append(reward)
             next_state_batch.append(next_state)
+            next_legal_actions_batch.append(next_legal_action)
             done_batch.append(done)
 
-        return state_batch, action_batch, reward_batch, next_state_batch, done_batch, idxs, is_weights
+        return state_batch, legal_actions_batch, action_batch, reward_batch, \
+               next_state_batch, next_legal_actions_batch, done_batch, idxs, is_weights
 
     def update_priorities(self, tree_idx, abs_error):
         abs_error += self.epsilon
@@ -430,4 +328,3 @@ class PrioritizedBufferWithSumTree:
         priorities = np.power(clipped_errors, self.alpha)
         for tree_index, priority in zip(tree_idx, priorities):
             self.tree.update(tree_index, priority)
-

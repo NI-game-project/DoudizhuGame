@@ -1,9 +1,9 @@
 import numpy as np
 import torch
 
-from agents.value_based.duel_dqn_agent import DQNAgent
-from agents.buffers import ReservoirMemoryBuffer
-from agents.networks import AveragePolicyNet
+from agents.value_based.nstep_noisy_duel_double_dqn import DQNAgent
+from agents.common.buffers import ReservoirMemoryBuffer
+from agents.common.model import AveragePolicyNet
 from utils_global import remove_illegal
 
 
@@ -75,7 +75,6 @@ class NFSPAgent:
                                  lr=self.rl_lr,
                                  batch_size=128,
                                  train_every=64,
-                                 epsilons=self.epsilons,
                                  )
 
         # initialize optimizers
@@ -264,7 +263,7 @@ class NFSPAgent:
         """
         state_dict = dict()
         state_dict['average_policy'] = self.average_policy.state_dict()
-        state_dict['dqn_local'] = self.rl_agent.local_net.state_dict()
+        state_dict['dqn_online'] = self.rl_agent.online_net.state_dict()
         state_dict['dqn_target'] = self.rl_agent.target_net.state_dict()
 
         torch.save(state_dict, file_path)
@@ -278,5 +277,5 @@ class NFSPAgent:
 
         state_dict = torch.load(filepath, map_location=self.device)
         self.average_policy.load_state_dict(state_dict['average_policy'])
-        self.rl_agent.local_net.load_state_dict(state_dict['dqn_local'])
+        self.rl_agent.online_net.load_state_dict(state_dict['dqn_online'])
         self.rl_agent.target_net.load_state_dict(state_dict['dqn_target'])
