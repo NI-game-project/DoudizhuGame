@@ -1,12 +1,13 @@
 import numpy as np
 import random
 import os
+import tensorflow as tf
 
-import agents.non_rl.doudizhu_rule_models as rule_based_agent
-import envs.mydoudizhu
-import utils.logger_hypernetwork
+import agents.non_rl.rule_based_agent as rule_based_agent
+import envs.mydoudizhu as env
+import utils.logger_hypernetwork as logger
 from utils_global import set_global_seed, tournament
-import agents.policy_based.a2c
+from agents.policy_based.a2c import Actor_Critic
 
 
 class Genetic_Algorithm():
@@ -42,13 +43,12 @@ class Genetic_Algorithm():
         self.generations = generations
         self.epsilon = epsilon
         
-        self.logger = envs.logger.Logger(self.log_dir)      
-        self.env = envs.doudizhu.DoudizhuEnv(self.config)
+        self.logger = logger.Logger(self.log_dir)      
+        self.env = env.DoudizhuEnv(self.config)
         
         #self.agent = agents.ddqn.DQNAgent(action_num=self.env.action_num)
-        self.agent = agents.a2c.Actor_Critic(action_num=self.env.action_num)
-        self.random_agent = agents.random_agent.RandomAgent(action_num=self.env.action_num)
-        self.rule_based_agent = agents.doudizhu_rule_models.DouDizhuRuleAgentV1()
+        self.agent = Actor_Critic(action_num=self.env.action_num)
+        self.rule_based_agent = rule_based_agent.DouDizhuRuleAgentV1(action_num=self.env.action_num)
 
         #self.weight_space = 652985 # This is for DQN
         self.weight_space = 494_081 + 652_085 #225_073 + 226_358 # This is for the A2C
