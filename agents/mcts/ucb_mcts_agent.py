@@ -5,7 +5,7 @@ from math import sqrt, log
 import numpy as np
 from envs.env import Env
 from agents.non_rl.rule_based_agent import DouDizhuRuleAgentV1
-from envs.doudizhu_rlcard import DoudizhuEnv
+from envs.mydoudizhu import DoudizhuEnv
 from utils_global import eval_tournament
 
 
@@ -213,7 +213,7 @@ def main():
     start = timeit.default_timer()
 
     # Make environment
-    eval_env = DoudizhuEnv(config)
+    eval_env = DoudizhuEnv(config, state_shape=[5, 4, 15])
     evaluate_num = 1000
 
     # Set up the agents
