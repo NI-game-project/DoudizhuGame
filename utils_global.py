@@ -379,6 +379,16 @@ def action_mask(action_num, q_values, legal_actions):
     return masked_q_values
 
 
+def legal_action_vector(action_num, legal_actions):
+    action_mask = np.zeros(action_num, dtype=int)
+    if len(legal_actions) == 0:
+        return action_mask
+    else:
+        action_mask[legal_actions] = 1
+
+    return action_mask
+
+
 def assign_task(task_num, process_num):
     ''' Assign the number of tasks according to the number of processes
 

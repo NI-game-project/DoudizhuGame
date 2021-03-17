@@ -296,6 +296,109 @@ class PrioritizedBuffer:
 
             # weight update factor depends on sampling probability of the experience and beta
             is_weights[i, 0] = np.power(self.batch_size * sampling_prob, -self.beta)
+
+            # store the index and experience
+            idxs[i] = idx
+            experience = data
+            batch.append(experience)
+        state_batch = []
+        legal_actions_batch = []
+        action_batch = []
+        reward_batch = []
+        next_state_batch = []
+        next_legal_actions_batch = []
+        done_batch = []
+
+        for transition in batch:
+            state, legal_action, action, reward, next_state, next_legal_action, done = transition
+            state_batch.append(state)
+            legal_actions_batch.append(legal_action)
+            action_batch.append(action)
+            reward_batch.append(reward)
+            next_state_batch.append(next_state)
+            next_legal_actions_batch.append(next_legal_action)
+            done_batch.append(done)
+
+        return state_batch, legal_actions_batch, action_batch, reward_batch, \
+               next_state_batch, next_legal_actions_batch, done_batch, idxs, is_weights
+
+    def update_priorities(self, tree_idx, abs_error):
+        abs_error += self.epsilon
+        clipped_errors = np.minimum(abs_error, self.max_error)
+        # The error is converted to priority by p=(error+ϵ)α
+        priorities = np.power(clipped_errors, self.alpha)
+        for tree_index, priority in zip(tree_idx, priorities):
+            self.tree.update(tree_index, priority)
+
+
+class NStepPERBuffer(object):
+    # Epsilon ϵ is a small positive constant that ensures that no transition has zero priority.
+    epsilon = 0.01
+    # Alpha(0≤α≤1), controls the difference between high and low error. It determines how much prioritization is used.
+    # If α=0, uniform case.
+    alpha = 0.6
+    beta = 0.4
+    beta_increment = 0.001
+    max_error = 1.0
+
+    def __init__(self, capacity, batch_size, n_step, gamma):
+        self.capacity = capacity
+        self.batch_size = batch_size
+        # build a SumTree
+        self.tree = SumTree(self.capacity)
+        self.n_step = n_step
+        self.gamma = gamma
+        self.n_step_buffer = deque(maxlen=self.n_step)
+
+    def _get_n_step_info(self):
+        reward, next_state, _, done = self.n_step_buffer[-1][-4:]
+
+        for _, _, _, rewards, next_states, _, done in reversed(list(self.n_step_buffer)[: -1]):
+            reward = rewards + self.gamma * reward * (1 - done)
+            next_state, done = (next_states, done) if done else (next_state, done)
+        return reward, next_state, done
+
+    def save(self, state, legal_actions, action, reward, next_state, next_legal_actions, done):
+        # new experiences are first stored in the tree with max priority
+        # untrained neural network is likely to return a value around zero for every input,
+        # The error in this case is simply the reward experienced in a given sample
+        max_priority = self.tree.max_p
+        if max_priority == 0:
+            max_priority = self.max_error
+
+        state = np.expand_dims(state, 0)
+        next_state = np.expand_dims(next_state, 0)
+
+        self.n_step_buffer.append([state, legal_actions, action, reward, next_state, next_legal_actions, done])
+        if len(self.n_step_buffer) < self.n_step:
+            return
+        reward, next_state, done = self._get_n_step_info()
+        state, _, action = self.n_step_buffer[0][: 3]
+        experience = (state, legal_actions, action, reward, next_state, next_legal_actions, done)
+        self.tree.add(max_priority, experience)
+
+    def sample(self):
+        batch = []
+        idxs = np.empty((self.batch_size,), dtype=np.int32)
+        is_weights = np.empty((self.batch_size, 1), dtype=np.float32)
+        # split the total priority into batch-sized segments
+        priority_segment = self.tree.total_priority / self.batch_size
+        # scheduler for beta
+        self.beta = np.min([1.0, self.beta + self.beta_increment])
+
+        for i in range(self.batch_size):
+            # calculate priority value for each segment to get corresponding experiences
+            a, b = priority_segment * i, priority_segment * (i + 1)
+            v = np.random.uniform(a, b)
+            idx, priority, data = self.tree.get_leaf(v)
+
+            # Priority is translated to probability of being chosen for replay.
+            # fetch and normalize priority
+            # A sample i has a probability of being picked during the experience replay determined by prob =pi / ∑kpk
+            sampling_prob = priority / self.tree.total_priority
+
+            # weight update factor depends on sampling probability of the experience and beta
+            is_weights[i, 0] = np.power(self.batch_size * sampling_prob, -self.beta)
             # store the index and experience
             idxs[i] = idx
             experience = data

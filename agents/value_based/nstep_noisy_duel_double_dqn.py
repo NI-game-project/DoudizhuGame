@@ -92,7 +92,6 @@ class DQNAgent:
         self.replay_memory_init_size = replay_memory_init_size
         self.use_n_step = use_n_step
         self.n_step = n_step
-        self.device = device
 
         # Total time steps and training time steps
         self.total_time = 0
@@ -306,7 +305,7 @@ class DQNAgent:
         # Compute the target value y=r+γQθ′(s′,a∗)
         # value = reward + gamma * target_network.predict(next_state)[argmax(local_network.predict(next_state))]
         if self.use_n_step:
-            expected_q_values = rewards + self.gamma ** self.n_step * (1 - dones) * next_q_values
+            expected_q_values = rewards + (self.gamma ** self.n_step) * (1 - dones) * next_q_values
         else:
             expected_q_values = rewards + self.gamma * (1 - dones) * next_q_values
         expected_q_values.detach()

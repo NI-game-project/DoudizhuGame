@@ -363,6 +363,9 @@ class C51DQNAgent:
 
             # next_dist: [batch_size, num_actions, num_atoms]
             if self.double:
+                # Sample the noise of online network to decorrelate between action selection and quantile calculation.
+                if self.layer_type == 'noisy':
+                    self.reset_noise()
                 # use online network to select next argmax action
                 next_dist = self.online_net(next_states)
             else:

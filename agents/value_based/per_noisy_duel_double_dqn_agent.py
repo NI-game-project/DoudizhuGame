@@ -317,7 +317,8 @@ class PERDQNAgent:
         self.memory_buffer.update_priorities(indices, td_error)
 
         # calculate the MSEloss
-        loss = (self.criterion * is_weights).mean()
+        error = self.criterion(expected_q_values, q_values)
+        loss = (error * is_weights).mean()
 
         self.optim.zero_grad()
         # Backpropagate importance-weighted (Prioritized Experience Replay) minibatch loss
