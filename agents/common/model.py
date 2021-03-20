@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.nn import LSTM
 import torch.nn.functional as F
+from torch.distributions import Categorical
 
 from functools import reduce
 import numpy as np
@@ -54,8 +55,8 @@ class NoisyLinear(nn.Module):
         sample random noise in sigma weight buffer and bias buffer
         """
         if self.training:
-            weight = self.weight_mu + self.weight_sigma.mul(self.weight_epsilon)
-            bias = self.bias_mu + self.bias_sigma.mul(self.bias_epsilon)
+            weight = self.weight_mu + self.weight_sigma.mul(self.weight_epsilon.clone())
+            bias = self.bias_mu + self.bias_sigma.mul(self.bias_epsilon.clone())
         else:
             weight = self.weight_mu
             bias = self.bias_mu
@@ -70,7 +71,7 @@ class NoisyLinear(nn.Module):
         self.bias_mu.detach().uniform_(-mu_range, mu_range)
 
         self.weight_sigma.detach().fill_(self.std_init / np.sqrt(self.input_dim))
-        self.bias_sigma.detach().fill_(self.std_init / np.sqrt(self.input_dim))
+        self.bias_sigma.detach().fill_(self.std_init / np.sqrt(self.output_dim))
 
     def reset_noise(self):
         # Generate noise for epsilon. These noise weights are not trainable by the model
@@ -90,7 +91,7 @@ class NoisyLinear(nn.Module):
 
 
 class DQN(nn.Module):
-    def __init__(self, state_shape, num_actions, use_conv=False, layer_type=None):
+    def __init__(self, state_shape, num_actions, use_conv=False, noisy=False):
         super(DQN, self).__init__()
 
         self.use_conv = use_conv
@@ -98,7 +99,7 @@ class DQN(nn.Module):
         flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
 
         self.fc1 = nn.Linear(flattened_state_shape, 512)
-        if layer_type == 'noisy':
+        if noisy:
 
             self.fc2 = NoisyLinear(512, 512)
             self.fc3 = NoisyLinear(512, num_actions)
@@ -130,7 +131,7 @@ class DuelingDQN(nn.Module):
     only tracks the relative change of the value of an action compared to its state, much more stable over time.
     """
 
-    def __init__(self, state_shape, num_actions, use_conv=False, layer_type=None):
+    def __init__(self, state_shape, num_actions, use_conv=False, noisy=False):
         super(DuelingDQN, self).__init__()
 
         self.use_conv = use_conv
@@ -138,7 +139,7 @@ class DuelingDQN(nn.Module):
         flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
 
         self.fc1 = nn.Linear(flattened_state_shape, 512)
-        if layer_type == 'noisy':
+        if noisy:
 
             self.fc2_adv = NoisyLinear(512, 512)
             self.fc2_val = NoisyLinear(512, 512)
@@ -178,11 +179,12 @@ class C51DQN(nn.Module):
      the output layer predicts the distribution of the returns for each action a in state s, instead of its mean Qπ(s,a)
     """
 
-    def __init__(self, state_shape, num_actions, num_atoms=51, use_conv=False, layer_type=None):
+    def __init__(self, state_shape, num_actions, num_atoms=51, use_conv=False, noisy=False):
         """Initialize parameters and build model.
                 Params
-                    state_size (int): Dimension of each state
-                    action_size (int): Dimension of each action
+                    state_shape (int): Dimension of state
+                    num_actions (int): Number of action
+                    num_atoms (int) : the number of buckets for the value function distribution.
         """
         super(C51DQN, self).__init__()
 
@@ -194,7 +196,7 @@ class C51DQN(nn.Module):
         flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
 
         self.fc1 = nn.Linear(flattened_state_shape, 512)
-        if layer_type == 'noisy':
+        if noisy:
 
             self.fc2 = NoisyLinear(512, 512)
             self.fc3 = NoisyLinear(512, self.num_actions * self.num_atoms)
@@ -220,7 +222,7 @@ class C51DQN(nn.Module):
 
 
 class C51DuelDQN(nn.Module):
-    def __init__(self, state_shape, num_actions, num_atoms=51, use_conv=False, layer_type='noisy'):
+    def __init__(self, state_shape, num_actions, num_atoms=51, use_conv=False, noisy=False):
         super(C51DuelDQN, self).__init__()
 
         self.use_conv = use_conv
@@ -230,7 +232,7 @@ class C51DuelDQN(nn.Module):
         flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
 
         self.fc1 = nn.Linear(flattened_state_shape, 512)
-        if layer_type == 'noisy':
+        if noisy:
 
             self.fc2_adv = NoisyLinear(512, 512)
             self.fc2_val = NoisyLinear(512, 512)
@@ -255,7 +257,8 @@ class C51DuelDQN(nn.Module):
         adv_average = torch.mean(advantage, dim=1, keepdim=True)
 
         dist = advantage + value - adv_average
-        dist = F.softmax(dist.view(-1, self.num_atoms), 1).view(-1, self.num_actions, self.num_atoms)
+        #dist = F.softmax(dist.view(-1, self.num_atoms), 1).view(-1, self.num_actions, self.num_atoms)
+        dist = F.softmax(dist, dim=2)
 
         return dist
 
@@ -320,3 +323,143 @@ class AveragePolicyNet(nn.Module):
 
         return x
 
+
+class ValueNetwork(nn.Module):
+    def __init__(self, state_shape, use_conv=False):
+        super(ValueNetwork, self).__init__()
+
+        self.use_conv = use_conv
+        flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
+
+        self.fc1 = nn.Linear(flattened_state_shape, 512)
+        self.fc2 = nn.Linear(512, 512)
+        self.fc3 = nn.Linear(512, 1)
+
+    def forward(self, state):
+        x = torch.flatten(state, start_dim=1)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+
+class PolicyNetwork(nn.Module):
+    def __init__(self, state_shape, num_actions, use_conv=False):
+        super(PolicyNetwork, self).__init__()
+
+        self.use_conv = use_conv
+        flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
+
+        self.fc1 = nn.Linear(flattened_state_shape, 512)
+        self.fc2 = nn.Linear(512, 512)
+        self.fc3 = nn.Linear(512, num_actions)
+
+        self.rewards = []
+        self.log_probs = []
+
+    def forward(self, state):
+        x = torch.flatten(state, start_dim=1)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = F.softmax(self.fc3(x), 1)
+        return x
+
+    def act(self, state, legal_actions):
+        probs = self.forward(state)[0]
+        probs = probs * legal_actions
+        dist = Categorical(probs)
+        action = dist.sample()
+        log_prob = dist.log_prob(action)
+        self.log_probs.append(log_prob)
+        return action
+
+
+class QRDQN(nn.Module):
+    def __init__(self, state_shape, num_actions, n_quantile, use_conv=False, noisy=False):
+        """Initialize parameters and build model.
+                Params
+                    state_shape (int): Dimension of state
+                    num_actions (int): Number of action
+                    n_quantile (int): Number of quantiles to estimate
+        """
+        super(QRDQN, self).__init__()
+
+        self.use_conv = use_conv
+        self.n_quantile = n_quantile
+        self.num_actions = num_actions
+        self.flatten = Flatten()
+
+        flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
+
+        self.fc1 = nn.Linear(flattened_state_shape, 512)
+        if noisy:
+
+            self.fc2 = NoisyLinear(512, 512)
+            self.fc3 = NoisyLinear(512, self.num_actions * self.n_quantile)
+
+        else:
+            self.fc2 = nn.Linear(512, 512)
+            self.fc3 = nn.Linear(512, self.num_actions * self.n_quantile)
+
+    def forward(self, state):
+        x = torch.flatten(state, start_dim=1)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        dist = self.fc3(x)
+
+        # [batch_size, num_actions, quant_num)
+        dist = dist.view(-1, self.num_actions, self.n_quantile)
+
+        return dist
+
+    def reset_noise(self):
+        self.fc2.reset_noise()
+        self.fc3.reset_noise()
+
+
+class QRDuelDQN(nn.Module):
+    def __init__(self, state_shape, num_actions, n_quantile=32, use_conv=False, noisy=False):
+        super(QRDuelDQN, self).__init__()
+
+        self.use_conv = use_conv
+        self.n_quantile = n_quantile
+        self.num_actions = num_actions
+
+        flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
+
+        self.fc1 = nn.Linear(flattened_state_shape, 512)
+        if noisy:
+
+            self.fc2_adv = NoisyLinear(512, 512)
+            self.fc2_val = NoisyLinear(512, 512)
+            self.advantage = NoisyLinear(512, self.num_actions * self.n_quantile)
+            self.value = NoisyLinear(512, self.n_quantile)
+        else:
+            self.fc2_adv = nn.Linear(512, 512)
+            self.fc2_val = nn.Linear(512, 512)
+            self.advantage = nn.Linear(512, self.num_actions * self.n_quantile)
+            self.value = nn.Linear(512, self.n_quantile)
+
+    def forward(self, state):
+        x = torch.flatten(state, start_dim=1)
+        x = F.relu(self.fc1(x))
+        x_a = F.relu(self.fc2_adv(x))
+        x_v = F.relu(self.fc2_val(x))
+
+        advantage = self.advantage(x_a)
+        value = self.value(x_v)
+        advantage = advantage.view(-1, self.num_actions, self.n_quantile)
+        value = value.view(-1, 1, self.n_quantile)
+        adv_average = torch.mean(advantage, dim=1, keepdim=True)
+
+        dist = advantage + value - adv_average
+        dist = dist.view(-1, self.num_actions, self.n_quantile)
+
+        return dist
+
+    def reset_noise(self):
+
+        self.fc2_val.reset_noise()
+        self.fc2_adv.reset_noise()
+        self.advantage.reset_noise()
+        self.value.reset_noise()

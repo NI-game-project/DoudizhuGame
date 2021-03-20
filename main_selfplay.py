@@ -8,21 +8,21 @@ from utils.logger import Logger
 from utils_global import tournament
 
 ### random or rule_based agents for evaluating ###
-# from agents.non_rl.dummyrule_agent import DummyRuleAgent as RandomAgent
+from agents.non_rl.dummyrule_agent import DummyRuleAgent as RandomAgent
 from agents.non_rl.rule_based_agent import DouDizhuRuleAgentV1 as RuleAgent
 # from agents.non_rl.rhcp_agent import RHCPAgent as RuleAgent
 
 ### rl_agents for training ###
 ### uncomment these lines to import different Agent for training
-#from agents.value_based.per_noisy_duel_double_dqn_agent import PERDQNAgent as RLAgent
-#from agents.value_based.nstep_noisy_duel_double_dqn import DQNAgent as RLAgent
-#from agents.value_based.C51_dqn_agent import C51DQNAgent as RLAgent
-from agents.value_based.rainbow_agent import RainbowAgent as RLAgent
+# from agents.value_based.nstep_agent import NStepDQNAgent as RLAgent
+# from agents.value_based.c51_agent import C51DQNAgent as RLAgent
+# from agents.value_based.per_agent import PERDQNAgent as RLAgent
+from agents.value_based.rainbow_c51 import RainbowAgent as RLAgent
 
-which_run = '23'
-which_agent = 'rain'
-eval_every = 5
-eval_num = 1
+which_run = '1'
+which_agent = 'rainbow'
+eval_every = 500
+eval_num = 1000
 episode_num = 100_000
 
 save_dir = f'./experiments/{which_run}/{which_agent}/'
@@ -59,8 +59,18 @@ agents = []
 for i in range(env.player_num):
     agents.append(RLAgent(num_actions=env.action_num,
                           state_shape=env.state_shape,
-                          lr=.00005,
-                          replay_memory_init_size=100,
+                          lr=.00001,
+                          gamma=0.97,
+                          batch_size=64,
+                          epsilon_start=1.0,
+                          epsilon_end=0.05,
+                          epsilon_decay_steps=80000,
+                          soft_update=False,
+                          train_every=1,
+                          hard_update_target_every=1000,
+                          replay_memory_init_size=1000,
+                          replay_memory_size=int(2e5),
+                          clip=True,
                           ))
 
 env.set_agents(agents)

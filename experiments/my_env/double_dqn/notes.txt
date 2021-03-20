@@ -1,0 +1,46 @@
+Training Arguments:
+--batch_size	Batch size:  64
+--buffer_size	Min: 1000, Max:  2e5	
+--soft_update	Whether use soft update:	False
+--tau	         Target smoothing coefficient(τ)	0.001
+--update_every	Interval of target network update:  1000
+--train_every	Frequency of training online network(number of steps between optimization step):  1
+--gamma	         Discount factor:	 0.95
+--eps_start	Start value of epsilon:	1.0
+--eps_end	Final value of epsilon:	0.05
+--eps_decay	How many steps it takes from eps-start to eps-end:  8e4
+--lr	         Learning rate	1e-5
+--loss		"huber"
+--clip_grad	Whether clipping gradients during training:  clip grad by norm(2)
+--optimizer	Adam
+--use_conv	Whether to use convolutional layers for network:  False
+--network	fc_layers: [512, 512], activation for hidden layers:  Relu
+--episode_num 	100_000
+--training_agents:  [agent, rule_based_agent, rule_based_agent]
+
+Algorithm Arguments:
+--double			Enable Double-Q Learning:  True
+--dueling		Enable Dueling Network:  False
+--noisy			Enable Noisy Network:  False
+--prioritized-replay	Enable prioritized experience replay:  False
+--distributional		Enable Categorical DQN: False
+--multi-step		N-Step Learning:	1
+--epsilon_greedy		Whether use eps_greedy during stepping:  True
+
+Environment Arguments:
+--seed:  None
+--env: mydoudizhu
+--env_type: None
+--state_shape: [5, 4, 15]
+--use_conv:  False
+--trained_agent:  landlord
+
+Eval Arguments
+--evaluation_every	Games for evaluation interval:  500
+--eval_num		How many episodes to eval:  1000
+--eval_agents		[agent, rule_based_agent, rule_based_agent]
+--logdir:		The folder that store log/performance info and model:  experiments/my_env/double_dqn
+
+best_result: 0.851
+
+   

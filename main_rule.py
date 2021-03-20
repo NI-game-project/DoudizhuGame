@@ -14,11 +14,10 @@ from agents.non_rl.rule_based_agent import DouDizhuRuleAgentV1 as RuleAgent
 
 ### rl_agents for training ###
 ### uncomment these lines to import different Agent for training
-#from agents.value_based.per_dqn_agent import PERDQNAgent as RLAgent
-#from agents.value_based.nstep_noisy_duel_double_dqn import DQNAgent as RLAgent
-#from agents.value_based.C51_dqn_agent import C51DQNAgent as RLAgent
-#from agents.value_based.per_noisy_duel_double_dqn_agent import PERDQNAgent as RLAgent
-from agents.value_based.rainbow_agent import RainbowAgent as RLAgent
+#from agents.value_based.nstep_agent import NStepDQNAgent as RLAgent
+#from agents.value_based.c51_agent import C51DQNAgent as RLAgent
+#from agents.value_based.per_agent import PERDQNAgent as RLAgent
+from agents.value_based.rainbow_c51 import RainbowAgent as RLAgent
 
 
 which_run = '1'
@@ -99,10 +98,7 @@ for episode in range(episode_num + 1):
                                agent.actions, agent.predictions, agent.q_values,
                                agent.current_q_values, agent.expected_q_values)
 
-        print(f'\nepisode: {episode}, result: {result}, '
-              f'epsilon: {agent.epsilon}, '
-              #f'lr: {agent.lr_scheduler.get_lr()}'
-              )
+        print(f'\nepisode: {episode}, result: {result}, 'f'epsilon: {agent.epsilon}, ')
 
         if result[0] > best_result:
             best_result = result[0]
