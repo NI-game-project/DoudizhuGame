@@ -100,10 +100,10 @@ class RainbowAgent(DQNBaseAgent):
         # support: [num_atoms]
         # [-1., -0.96, -0.92, ..., 0.92, 0.96, 1.]
         self.support = torch.linspace(self.v_min, self.v_max, self.num_atoms)
-        # delta_z: scalar - 0.04
+        # delta_z: scalar(0.04)
         self.delta_z = float(self.v_max - self.v_min) / (self.num_atoms - 1)
 
-        # initialize q and target networks
+        # initialize online and target networks
         if dueling:
             self.online_net = C51DuelDQN(state_shape=self.state_shape, num_actions=self.num_actions,
                                          num_atoms=self.num_atoms, use_conv=use_conv,
@@ -121,12 +121,14 @@ class RainbowAgent(DQNBaseAgent):
 
         self.online_net.train()
         self.target_net.train()
+        # Disable calculations of gradients of the target network.
         for param in self.target_net.parameters():
             param.requires_grad = False
 
-        # initialize optimizer(Adam) for q network
+        # initialize optimizer(Adam) for online network
         self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=lr)
 
+        # initialize memory buffer
         if self.n_step:
             if self.per:
                 self.memory_buffer = NStepPERBuffer(replay_memory_size, batch_size, self.n_step, self.gamma)
@@ -238,7 +240,7 @@ class RainbowAgent(DQNBaseAgent):
             dist = dist * self.support.expand_as(dist)
 
             # get q_values by summing up over the distribution of each action,
-            # then Calculate a softmax distribution over q_values
+            # then calculate a softmax distribution over q_values
             q_values = dist.sum(2)[0]
             softmax_q_vals = self.softmax(q_values).numpy()
 
@@ -258,7 +260,7 @@ class RainbowAgent(DQNBaseAgent):
         Output:
             loss (float) : loss on training batch
         """
-
+        # sample a batch of transitions from memory
         if self.per:
             states, legal_actions, actions, rewards, next_states, next_legal_actions, dones, indices, is_weights \
                 = self.memory_buffer.sample()
@@ -276,7 +278,7 @@ class RainbowAgent(DQNBaseAgent):
         self.online_net.train()
         self.target_net.train()
 
-        # Compute probabilities of Q(s,a*)
+        # Calculate value distributions of current (states, actions).
         dists = self.online_net(states)
         actions = actions.unsqueeze(1).unsqueeze(1).expand(self.batch_size, 1, self.num_atoms)
         dists = dists.gather(1, actions).squeeze(1)
@@ -284,11 +286,12 @@ class RainbowAgent(DQNBaseAgent):
         dists.detach().data.clamp_(0.01, 0.99)
 
         with torch.no_grad():
+            # Calculate value distributions of next states.
             next_dist_target = self.target_net(next_states)
 
             # next_dist: [batch_size, num_actions, num_atoms]
             if self.double:
-                # Sample the noise of online network to decorrelate between action selection and quantile calculation.
+                # Reset noise of online network to decorrelate between action selection and value distribution calculation.
                 if self.noisy:
                     self.reset_noise()
                 # use online network to select next argmax action
@@ -297,42 +300,45 @@ class RainbowAgent(DQNBaseAgent):
                 # use target network to select next argmax action
                 next_dist_online = next_dist_target
 
-        # next_action: [batch_size, num_actions]
-        next_q_values = (next_dist_online * self.support.expand_as(next_dist_online)).sum(2)
+            # get q_values by summing up over the last dim of distribution
+            # next_q_values: [batch_size, num_actions]
+            next_q_values = (next_dist_online * self.support.expand_as(next_dist_online)).sum(2)
 
-        # Do action_mask for q_values of next_state if not done
-        for i in range(self.batch_size):
-            next_q_values[i] = action_mask(self.num_actions, next_q_values[i], next_legal_actions[i])
+            # Do action mask for q_values of next_state if not done (i.e., set q_values of illegal actions to -inf)
+            for i in range(self.batch_size):
+                next_q_values[i] = action_mask(self.num_actions, next_q_values[i], next_legal_actions[i])
 
-        next_argmax_action = next_q_values.max(1)[1]
-        # next_action: [batch_size, 1, num_atoms]
-        next_argmax_action = next_argmax_action.unsqueeze(1).unsqueeze(1).expand(self.batch_size, 1, self.num_atoms)
-        # next_dist: [batch_size, num_atoms]
-        next_dist = next_dist_target.gather(1, next_argmax_action).squeeze(1)
+            # Select greedy actions a∗ in next state using the target(online if double) network., a∗=argmaxa′Qθ(s′,a′)
+            next_argmax_action = next_q_values.max(1)[1]
+            # next_argmax_action: [batch_size, 1, num_atoms]
+            next_argmax_action = next_argmax_action.unsqueeze(1).unsqueeze(1).expand(self.batch_size, 1, self.num_atoms)
+            # Use greedy actions to select target value distributions.
+            # next_dist: [batch_size, num_atoms]
+            next_dist = next_dist_target.gather(1, next_argmax_action).squeeze(1)
 
-        # Compute distribution of Q(s',a)
-        proj_dists = self.projection_distribution(next_dist, rewards, dones)
+            # project next value distribution onto the support
+            proj_dists = self.projection_distribution(next_dist, rewards, dones)
 
         # Cross-entropy loss (minimises KL-distance between online and target probs): DKL(proj_dists || dists)
-        # dists: policy distribution for local network
-        # proj_dists: aligned target policy distribution
+        # dists: policy distribution for online network
+        # proj_dists: aligned policy distribution for target network
         error = -(proj_dists * dists.log()).sum(1)
 
         if self.per:
-
-            loss = (error * is_weights).mean()
             # update per priorities
             self.memory_buffer.update_priorities(indices, abs(error).detach().numpy())
+            # calculate importance-weighted (Prioritized Experience Replay) batch loss
+            loss = (error * is_weights).mean()
         else:
             loss = error.mean()
 
         self.optimizer.zero_grad()
 
-        # Backpropagate importance-weighted (Prioritized Experience Replay) minibatch loss
+        # Backpropagate importance-weighted (Prioritized Experience Replay) batch loss
         loss.backward()
 
+        # Clip gradients (normalising by max value of gradient L2 norm)
         if self.clip:
-            # Clip gradients (normalising by max value of gradient L1 norm)
             nn.utils.clip_grad_norm_(self.online_net.parameters(), max_norm=self.clip_norm)
             # nn.utils.clip_grad_value_(self.online_net.parameters(), clip_value=0.5)
 

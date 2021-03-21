@@ -41,7 +41,7 @@ class DQNBaseAgent:
                  lr=0.0001,
                  gamma=0.99,
                  epsilon_start=1.0,
-                 epsilon_end=0.1,
+                 epsilon_end=0.05,
                  epsilon_decay_steps=40000,
                  batch_size=32,
                  train_every=1,
@@ -50,10 +50,10 @@ class DQNBaseAgent:
                  soft_update=False,
                  soft_update_target_every=10,
                  hard_update_target_every=1000,
-                 loss_type='mse',
+                 loss_type='huber',
                  double=False,
                  noisy=False,
-                 clip=False,
+                 clip=True,
                  use_conv=False,
                  device=None,
                  ):
@@ -103,6 +103,7 @@ class DQNBaseAgent:
 
         self.online_net.train()
         self.target_net.train()
+        # Disable calculations of gradients of the target network.
         for param in self.target_net.parameters():
             param.requires_grad = False
 
@@ -241,7 +242,8 @@ class DQNBaseAgent:
 
             self.train_mode()
             if self.noisy:
-                # Sample a new set of noisy epsilons, i.e. fix new random weights for noisy layers to encourage exploration
+                # Sample a new set of noisy epsilons,
+                # (i.e. fix new random weights for noisy layers to encourage exploration)
                 self.online_net.reset_noise()
                 self.target_net.reset_noise()
 
@@ -256,7 +258,7 @@ class DQNBaseAgent:
         Output:
             loss (float) : loss on training batch
         """
-
+        # sample a batch of transitions from memory
         states, legal_actions, actions, rewards, next_states, next_legal_actions, dones = self.memory_buffer.sample()
 
         states = torch.FloatTensor(states).to(self.device)
@@ -268,22 +270,25 @@ class DQNBaseAgent:
         self.online_net.train()
         self.target_net.train()
 
+        # Calculate q values of current (states, actions).
         q_values = self.online_net(states)
         q_values = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
 
         with torch.no_grad():
-            # Predict its Q-value Qθ′(s′,a∗) using the target network.
+            # Calculate q values of next states.
             next_q_values_target = self.target_net(next_states)
 
-            # Do action_mask for q_values of next_state if not done
+            # Do action mask for q_values of next_state if not done (i.e., set q_values of illegal actions to -inf)
             for i in range(self.batch_size):
                 next_q_values_target[i] = action_mask(self.num_actions, next_q_values_target[i], next_legal_actions[i])
 
+            # Select greedy actions a∗ in next state using the target(online if double) network., a∗=argmaxa′Qθ(s′,a′)
             next_argmax_actions = next_q_values_target.max(1)[1]
-
+            # Use greedy actions to select target q values.
             next_q_values = next_q_values_target.gather(1, next_argmax_actions.unsqueeze(1)).squeeze(1)
 
-        # Compute the target value y=r+γQθ′(s′,a∗)
+        # Compute the expected q value y=r+γQθ′(s′,a∗)
+        # for double dqn:
         # value = reward + gamma * target_network.predict(next_state)[argmax(local_network.predict(next_state))]
         expected_q_values = rewards + self.gamma * (1 - dones) * next_q_values
         expected_q_values.detach()
@@ -293,8 +298,8 @@ class DQNBaseAgent:
         self.optimizer.zero_grad()
         loss.backward()
 
+        # Clip gradients (normalising by max value of gradient L2 norm)
         if self.clip:
-            # Clip gradients (normalising by max value of gradient L1 norm)
             nn.utils.clip_grad_norm_(self.online_net.parameters(), max_norm=self.clip_norm)
             # nn.utils.clip_grad_value_(self.online_net.parameters(), clip_value=0.5)
         self.optimizer.step()
@@ -314,13 +319,14 @@ class DQNBaseAgent:
         """Updates target network """
 
         if is_soft:
-            # target_weights = target_weights * (1-tau) + q_weights * tau, where 0 < tau < 1
+            # target_weights = target_weights * (1-tau) + online_weights * tau,(0<tau<1)
             if self.train_time > 0 and self.train_time % self.soft_update_every == 0:
                 for target_param, local_param in zip(self.target_net.parameters(), self.online_net.parameters()):
                     target_param.data.copy_(self.tau * local_param.data + (1 - self.tau) * target_param.data)
                 # print(f'target parameters soft_updated on step {self.train_time}')
 
         else:
+            # copy the parameters of online network to target network
             if self.train_time > 0 and self.train_time % self.hard_update_every == 0:
                 self.target_net.load_state_dict(self.online_net.state_dict())
                 # print(f'target parameters hard_updated on step {self.train_time}')

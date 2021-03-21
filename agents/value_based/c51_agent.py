@@ -101,7 +101,7 @@ class C51DQNAgent(DQNBaseAgent):
         # [-1., -0.96, -0.92, ..., 0.92, 0.96, 1.]
         self.support = torch.linspace(self.v_min, self.v_max, self.num_atoms)
 
-        # delta_z: scalar - 0.04
+        # delta_z: scalar
         self.delta_z = float(self.v_max - self.v_min) / (self.num_atoms - 1)
 
         # initialize online and target networks
@@ -120,6 +120,7 @@ class C51DQNAgent(DQNBaseAgent):
 
         self.online_net.train()
         self.target_net.train()
+        # Disable calculations of gradients of the target network.
         for param in self.target_net.parameters():
             param.requires_grad = False
 
@@ -225,8 +226,8 @@ class C51DQNAgent(DQNBaseAgent):
             dist = self.online_net(state_obs).cpu().detach()
             dist = dist.mul(self.support)
 
-            # get q_values by summing up over the distribution of each action,
-            # then Calculate a softmax distribution over q_values
+            # get q_values by summing up over the last dim of distribution of each action,
+            # then calculate a softmax distribution over q_values
             q_values = dist.sum(2)[0]
             softmax_q_vals = self.softmax(q_values).numpy()
 
@@ -246,7 +247,7 @@ class C51DQNAgent(DQNBaseAgent):
             Output:
                 loss (float) : loss on training batch
         """
-
+        # sample a batch of transitions from memory
         states, legal_actions, actions, rewards, next_states, next_legal_actions, dones = self.memory_buffer.sample()
 
         states = torch.FloatTensor(states).to(self.device)
@@ -258,7 +259,7 @@ class C51DQNAgent(DQNBaseAgent):
         self.online_net.train()
         self.target_net.train()
 
-        # Compute probabilities of Q(s,a*)
+        # Calculate value distributions of current (states, actions).
         dists = self.online_net(states)
         actions = actions.unsqueeze(1).unsqueeze(1).expand(self.batch_size, 1, self.num_atoms)
         dists = dists.gather(1, actions).squeeze(1)
@@ -266,11 +267,12 @@ class C51DQNAgent(DQNBaseAgent):
         dists.detach().data.clamp_(0.01, 0.99)
 
         with torch.no_grad():
+            # Calculate value distributions of next states.
             next_dist_target = self.target_net(next_states)
 
             # next_dist: [batch_size, num_actions, num_atoms]
             if self.double:
-                # Sample the noise of online network to decorrelate between action selection and distribution calculation.
+                # Reset noise of online network to decorrelate between action selection and value distribution calculation.
                 if self.noisy == 'noisy':
                     self.reset_noise()
                 # use online network to select next argmax action
@@ -279,35 +281,38 @@ class C51DQNAgent(DQNBaseAgent):
                 # use target network to select next argmax action
                 next_dist_online = next_dist_target
 
-        # next_action: [batch_size]
-        next_q_values = (next_dist_online * self.support).sum(2)
+            # get q_values by summing up over the last dim of distribution
+            # next_action: [batch_size]
+            next_q_values = (next_dist_online * self.support).sum(2)
 
-        # Do action_mask for q_values of next_state if not done
-        for i in range(self.batch_size):
-            next_q_values[i] = action_mask(self.num_actions, next_q_values[i], next_legal_actions[i])
+            # Do action mask for q_values of next_state if not done (i.e., set q_values of illegal actions to -inf)
+            for i in range(self.batch_size):
+                next_q_values[i] = action_mask(self.num_actions, next_q_values[i], next_legal_actions[i])
 
-        next_argmax_actions = next_q_values.max(1)[1]
-        # next_action: [batch_size, 1, num_atoms]
-        next_argmax_actions = next_argmax_actions.unsqueeze(1).unsqueeze(1).expand(self.batch_size, 1, self.num_atoms)
-        # next_dist: [batch_size, num_atoms]
-        next_dist = next_dist_target.gather(1, next_argmax_actions).squeeze(1)
+            # Select greedy actions a∗ in next state using the target(online if double) network., a∗=argmaxa′Qθ(s′,a′)
+            next_argmax_actions = next_q_values.max(1)[1]
+            # next_action: [batch_size, 1, num_atoms]
+            next_argmax_actions = next_argmax_actions.unsqueeze(1).unsqueeze(1).expand(self.batch_size, 1, self.num_atoms)
+            # Use greedy actions to select target value distributions.
+            # next_dist: [batch_size, num_atoms]
+            next_dist = next_dist_target.gather(1, next_argmax_actions).squeeze(1)
 
-        # Compute distribution of Q(s',a)
-        proj_dists = self.projection_distribution(next_dist, rewards, dones).detach()
+            # project next value distribution onto the support
+            proj_dists = self.projection_distribution(next_dist, rewards, dones).detach()
 
         # Cross-entropy loss (minimises KL-distance between online and target probs): DKL(proj_dists || dists)
-        # dists: policy distribution for local network
-        # proj_dists: aligned target policy distribution
+        # dists: policy distribution for online network
+        # proj_dists: aligned policy distribution for target network
         loss = -(proj_dists * dists.log()).sum(1)
         loss = loss.mean()
 
         self.optimizer.zero_grad()
         loss.backward()
 
+        # Clip gradients (normalising by max value of gradient L2 norm)
         if self.clip:
-            # Clip gradients (normalising by max value of gradient L1 norm)
             nn.utils.clip_grad_norm_(self.online_net.parameters(), max_norm=self.clip_norm)
-            # nn.utils.clip_grad_value_(self.online_net.parameters(), clip_value=0.5)
+            #nn.utils.clip_grad_value_(self.online_net.parameters(), clip_value=self.clip_value)
         self.optimizer.step()
 
         self.loss = loss.item()

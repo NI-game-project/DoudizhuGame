@@ -101,6 +101,7 @@ class NStepDQNAgent(DQNBaseAgent):
 
         self.online_net.train()
         self.target_net.train()
+        # Disable calculations of gradients of the target network.
         for param in self.target_net.parameters():
             param.requires_grad = False
 
@@ -122,6 +123,7 @@ class NStepDQNAgent(DQNBaseAgent):
             loss (float) : loss on training batch
         """
 
+        # sample a batch of transitions from memory
         states, legal_actions, actions, rewards, next_states, next_legal_actions, dones = self.memory_buffer.sample()
 
         states = torch.FloatTensor(states).to(self.device)
@@ -133,31 +135,35 @@ class NStepDQNAgent(DQNBaseAgent):
         self.online_net.train()
         self.target_net.train()
 
+        # Calculate q values of current (states, actions).
         q_values = self.online_net(states)
         q_values = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
 
         with torch.no_grad():
-            # Predict its Q-value Qθ′(s′,a∗) using the target network.
+            # Calculate q values of next states.
             next_q_values_target = self.target_net(next_states)
 
-            # Sample the noise of online network to decorrelate between action selection and quantile calculation.
+            # Reset noise of online network to decorrelate between action selection and q values calculation.
             if self.double:
                 if self.noisy:
                     self.reset_noise()
-                # Select the greedy action in the next state a∗=argmaxa′Qθ(s′,a′) using the local network.
+                # use online network to select next argmax action
                 next_q_values_online = self.online_net(next_states)
             else:
+                # use target network to select next argmax action
                 next_q_values_online = next_q_values_target
 
-            # Do action_mask for q_values of next_state if not done
+            # Do action mask for q_values of next_state if not done (i.e., set q_values of illegal actions to -inf)
             for i in range(self.batch_size):
                 next_q_values_online[i] = action_mask(self.num_actions, next_q_values_online[i], next_legal_actions[i])
 
+            # Select greedy actions a∗ in next state using the target(online if double) network., a∗=argmaxa′Qθ(s′,a′)
             next_argmax_actions = next_q_values_online.max(1)[1]
+            # Predict its Q-value Qθ′(s′,a∗) using the target network.
             next_q_values = next_q_values_target.gather(1, next_argmax_actions.unsqueeze(1)).squeeze(1)
 
-        # Compute the target value y=r+γQθ′(s′,a∗)
-        # value = reward + gamma * target_network.predict(next_state)[argmax(local_network.predict(next_state))]
+        # Compute the expected q value y=r+γQθ′(s′,a∗)
+        # value = reward + gamma * target_network.predict(next_state)[argmax(online_network.predict(next_state))]
         if self.use_n_step:
             expected_q_values = rewards + (self.gamma ** self.n_step) * (1 - dones) * next_q_values
         else:
@@ -170,8 +176,8 @@ class NStepDQNAgent(DQNBaseAgent):
 
         loss.backward()
 
+        # Clip gradients (normalising by max value of gradient L2 norm)
         if self.clip:
-            # Clip gradients (normalising by max value of gradient L1 norm)
             nn.utils.clip_grad_norm_(self.online_net.parameters(), max_norm=self.clip_norm)
             # nn.utils.clip_grad_value_(self.online_net.parameters(), clip_value=0.5)
         self.optimizer.step()
