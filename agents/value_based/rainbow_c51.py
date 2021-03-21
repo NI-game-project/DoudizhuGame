@@ -11,7 +11,7 @@ from agents.value_based.dqn_base_agent import DQNBaseAgent
 class RainbowAgent(DQNBaseAgent):
     """
     An implementation of rainbow dqn agent
-    with double, dueling, noisy, c51(categorical/distribution) network, multi-step prioritized replay buffer.
+    with double, dueling, noisy, c21_dqn(categorical/distribution) network, multi-step prioritized replay buffer.
 
         Q(s,a) is the expected reward. Z is the full distribution from which Q is generated.
         Support represents the support of Z distribution (non-zero part of pdf).
@@ -318,6 +318,7 @@ class RainbowAgent(DQNBaseAgent):
 
             # project next value distribution onto the support
             proj_dists = self.projection_distribution(next_dist, rewards, dones)
+            proj_dists = proj_dists.detach()
 
         # Cross-entropy loss (minimises KL-distance between online and target probs): DKL(proj_dists || dists)
         # dists: policy distribution for online network

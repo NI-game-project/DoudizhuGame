@@ -149,6 +149,7 @@ class PERDQNAgent(DQNBaseAgent):
             # Reset noise of online network to decorrelate between action selection and q values calculation.
             if self.double:
                 if self.noisy:
+                    # Reset noise of online network to decorrelate between action selection and q values calculation.
                     self.reset_noise()
                 # use online network to select next argmax action
                 next_q_values_online = self.online_net(next_states)

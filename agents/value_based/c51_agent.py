@@ -298,7 +298,8 @@ class C51DQNAgent(DQNBaseAgent):
             next_dist = next_dist_target.gather(1, next_argmax_actions).squeeze(1)
 
             # project next value distribution onto the support
-            proj_dists = self.projection_distribution(next_dist, rewards, dones).detach()
+            proj_dists = self.projection_distribution(next_dist, rewards, dones)
+            proj_dists = proj_dists.detach()
 
         # Cross-entropy loss (minimises KL-distance between online and target probs): DKL(proj_dists || dists)
         # dists: policy distribution for online network
