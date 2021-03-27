@@ -210,10 +210,10 @@ class C51DQN(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         dist = self.fc3(x)
+        dist = dist.view(-1, self.num_actions, self.num_atoms)
 
         # [batch_size, num_actions, num_atoms)
-        dist = F.softmax(dist.view(-1, self.num_atoms), 1).view(-1, self.num_actions, self.num_atoms)
-
+        dist = F.softmax(dist, dim=2)
         return dist
 
     def reset_noise(self):
@@ -257,7 +257,6 @@ class C51DuelDQN(nn.Module):
         adv_average = torch.mean(advantage, dim=1, keepdim=True)
 
         dist = advantage + value - adv_average
-        #dist = F.softmax(dist.view(-1, self.num_atoms), 1).view(-1, self.num_actions, self.num_atoms)
         dist = F.softmax(dist, dim=2)
 
         return dist
@@ -375,6 +374,7 @@ class PolicyNetwork(nn.Module):
 
 
 class QRDQN(nn.Module):
+    # output of the network: #actions * #quantiles
     def __init__(self, state_shape, num_actions, n_quantile, use_conv=False, noisy=False):
         """Initialize parameters and build model.
                 Params
@@ -418,6 +418,7 @@ class QRDQN(nn.Module):
 
 
 class QRDuelDQN(nn.Module):
+
     def __init__(self, state_shape, num_actions, n_quantile=32, use_conv=False, noisy=False):
         super(QRDuelDQN, self).__init__()
 
@@ -463,3 +464,43 @@ class QRDuelDQN(nn.Module):
         self.fc2_adv.reset_noise()
         self.advantage.reset_noise()
         self.value.reset_noise()
+
+
+class FQFDQN(nn.Module):
+    def __init__(self, state_shape, num_actions, quant_num, cosine_num, use_conv=False, noisy=False):
+
+        super(FQFDQN, self).__init__()
+
+        self.use_conv = use_conv
+        self.quant_num = quant_num
+        self.cosine_num = cosine_num
+        self.num_actions = num_actions
+        self.flatten = Flatten()
+
+        flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
+
+        self.fc1 = nn.Linear(flattened_state_shape, 512)
+        self.cosine = nn.Linear(self.cosine_num, 512)
+        if noisy:
+
+            self.fc2 = NoisyLinear(512, 512)
+            self.fc3 = NoisyLinear(512, self.num_actions * self.quant_num)
+
+        else:
+            self.fc2 = nn.Linear(512, 512)
+            self.fc3 = nn.Linear(512, self.num_actions * self.quant_num)
+
+    def forward(self, state):
+        x = torch.flatten(state, start_dim=1)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        dist = self.fc3(x)
+
+        # [batch_size, num_actions, quant_num)
+        dist = dist.view(-1, self.num_actions, self.quant_num)
+
+        return dist
+
+    def reset_noise(self):
+        self.fc2.reset_noise()
+        self.fc3.reset_noise()

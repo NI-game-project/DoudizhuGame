@@ -2,7 +2,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from utils_global import remove_illegal, action_mask
+from agents.value_based.utils import disable_gradients
+from utils_global import action_mask
 from agents.common.model import C51DQN, C51DuelDQN
 from agents.common.buffers import BasicBuffer
 from agents.value_based.dqn_base_agent import DQNBaseAgent
@@ -50,8 +51,8 @@ class C51DQNAgent(DQNBaseAgent):
                  state_shape,
                  num_actions,
                  num_atoms=51,
-                 v_min=-1.,
-                 v_max=1.,
+                 v_min=-10.,
+                 v_max=10.,
                  lr=0.00001,
                  gamma=0.99,
                  epsilon_start=1.0,
@@ -121,19 +122,13 @@ class C51DQNAgent(DQNBaseAgent):
         self.online_net.train()
         self.target_net.train()
         # Disable calculations of gradients of the target network.
-        for param in self.target_net.parameters():
-            param.requires_grad = False
+        disable_gradients(self.target_net)
 
         # initialize optimizer for online network
-        self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=self.lr)
+        self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=self.lr, eps=1e-2/batch_size)
 
         # initialize memory buffer
         self.memory_buffer = BasicBuffer(replay_memory_size, batch_size)
-
-    @staticmethod
-    def KL_divergence_two_dist(dist_p, dist_q):
-        kld = torch.sum(dist_p * (torch.log(dist_p) - torch.log(dist_q)))
-        return kld
 
     def projection_distribution(self, next_dist, rewards, dones):
         """
@@ -155,7 +150,7 @@ class C51DQNAgent(DQNBaseAgent):
         # For calculating Tz we use the support to calculate ALL possible expected returns,
         # i.e. the full distribution, without looking at the probabilities yet.
         # Clamp values so they fall within the support of Z values
-        Tz = rewards + (1 - dones) * support * self.gamma
+        Tz = rewards + self.gamma * (1 - dones) * support
         Tz = Tz.clamp(min=self.v_min, max=self.v_max)
 
         # Compute categorical indices for distributing the probability
@@ -224,18 +219,17 @@ class C51DQNAgent(DQNBaseAgent):
         with torch.no_grad():
             # Distribution of the probabilities of θ(s,a) on the support
             dist = self.online_net(state_obs).cpu().detach()
-            dist = dist.mul(self.support)
+            dist = dist * self.support.expand_as(dist)
 
-            # get q_values by summing up over the last dim of distribution of each action,
-            # then calculate a softmax distribution over q_values
+            # get q_values by summing up over the last dim of distribution of each action
             q_values = dist.sum(2)[0]
-            softmax_q_vals = self.softmax(q_values).numpy()
 
+            # Do action mask for q_values. i.e., set q_values of illegal actions to -inf
+            probs = action_mask(self.num_actions, q_values, legal_actions)
+            max_action = np.argmax(probs.numpy())
             predicted_action = np.argmax(q_values.numpy())
-            probs = remove_illegal(softmax_q_vals, legal_actions)
-            max_action = np.argmax(probs)
 
-            self.q_values = q_values
+            # self.q_values = q_values.numpy()
 
         return probs, max_action, predicted_action
 
@@ -282,8 +276,7 @@ class C51DQNAgent(DQNBaseAgent):
                 next_dist_online = next_dist_target
 
             # get q_values by summing up over the last dim of distribution
-            # next_action: [batch_size]
-            next_q_values = (next_dist_online * self.support).sum(2)
+            next_q_values = (next_dist_online * self.support.expand_as(next_dist_online)).sum(2)
 
             # Do action mask for q_values of next_state if not done (i.e., set q_values of illegal actions to -inf)
             for i in range(self.batch_size):

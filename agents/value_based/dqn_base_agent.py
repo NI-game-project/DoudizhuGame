@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from agents.common.model import DQN, DeepConvNet
+from agents.value_based.utils import disable_gradients
 from utils_global import remove_illegal, action_mask
 from agents.common.buffers import BasicBuffer
 
@@ -104,19 +105,16 @@ class DQNBaseAgent:
         self.online_net.train()
         self.target_net.train()
         # Disable calculations of gradients of the target network.
-        for param in self.target_net.parameters():
-            param.requires_grad = False
+        disable_gradients(self.target_net)
 
         # initialize optimizer for online network
-        self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=self.lr)
+        self.optimizer = torch.optim.RMSprop(self.online_net.parameters(), lr=self.lr, momentum=0.95)
 
         # initialize loss function for network
         if loss_type == 'mse':
             self.criterion = nn.MSELoss(reduction='mean')
         elif loss_type == 'huber':
             self.criterion = nn.SmoothL1Loss(reduction='mean')
-
-        self.softmax = torch.nn.Softmax(dim=-1)
 
         # initialize memory buffer
         self.memory_buffer = BasicBuffer(replay_memory_size, batch_size)
@@ -146,15 +144,14 @@ class DQNBaseAgent:
         with torch.no_grad():
             state_obs = torch.FloatTensor(state['obs']).unsqueeze(0).to(self.device)
             legal_actions = state['legal_actions']
-            q_values = self.online_net(state_obs)[0].cpu().detach().numpy()
-            # Note the first arg for remove_illegal func must be probabilities(i.e., elements must be larger than zero)
-            # Calculate a softmax distribution over q_values to ensure probs passed to remove_illegal larger than zero
-            softmax_q_vals = self.softmax(self.online_net(state_obs))[0].cpu().detach().numpy()
-            predicted_action = np.argmax(softmax_q_vals)
-            probs = remove_illegal(softmax_q_vals, legal_actions)
-            max_action = np.argmax(probs)
+            q_values = self.online_net(state_obs)[0].cpu().detach()
 
-            self.q_values = q_values
+            # Do action mask for q_values. i.e., set q_values of illegal actions to -inf
+            probs = action_mask(self.num_actions, q_values, legal_actions)
+            max_action = np.argmax(probs.numpy())
+            predicted_action = np.argmax(q_values.numpy())
+
+            # self.q_values = q_values.numpy()
 
         return probs, max_action, predicted_action
 
@@ -179,12 +176,12 @@ class DQNBaseAgent:
 
         legal_actions = state['legal_actions']
         max_action = self.predict(state)[1]
-        # pick an action randomly
+
         if np.random.uniform() < self.epsilon:
-            probs = remove_illegal(np.ones(self.num_actions), legal_actions)
-            action = np.random.choice(self.num_actions, p=probs)
-        # pick the argmax_action predicted by the network
+            # pick an action randomly from legal actions
+            action = np.random.choice(legal_actions)
         else:
+            # pick the argmax_action predicted by the network
             action = max_action
 
         return action
@@ -210,7 +207,7 @@ class DQNBaseAgent:
         if use_max:
             action = max_action
         else:
-            action = np.random.choice(self.num_actions, p=probs)
+            action = np.random.choice(state['legal_actions'])
 
         self.actions.append(max_action)
         self.predictions.append(predicted_action)
@@ -276,16 +273,16 @@ class DQNBaseAgent:
 
         with torch.no_grad():
             # Calculate q values of next states.
-            next_q_values_target = self.target_net(next_states)
+            next_q_values = self.online_net(next_states)
 
             # Do action mask for q_values of next_state if not done (i.e., set q_values of illegal actions to -inf)
             for i in range(self.batch_size):
-                next_q_values_target[i] = action_mask(self.num_actions, next_q_values_target[i], next_legal_actions[i])
+                next_q_values[i] = action_mask(self.num_actions, next_q_values[i], next_legal_actions[i])
 
-            # Select greedy actions a∗ in next state using the target(online if double) network., a∗=argmaxa′Qθ(s′,a′)
-            next_argmax_actions = next_q_values_target.max(1)[1]
+            # Select greedy actions a∗ in next state using., a∗=argmaxa′Qθ(s′,a′)
+            next_argmax_actions = next_q_values.max(1)[1]
             # Use greedy actions to select target q values.
-            next_q_values = next_q_values_target.gather(1, next_argmax_actions.unsqueeze(1)).squeeze(1)
+            next_q_values = next_q_values.gather(1, next_argmax_actions.unsqueeze(1)).squeeze(1)
 
         # Compute the expected q value y=r+γQθ′(s′,a∗)
         # for double dqn:
@@ -307,7 +304,7 @@ class DQNBaseAgent:
         self.loss = loss.item()
 
         # soft/hard update the parameters of the target network and increase the training time
-        self.update_target_net(self.soft_update)
+        # self.update_target_net(self.soft_update)
         self.train_time += 1
 
         self.expected_q_values = expected_q_values

@@ -37,23 +37,8 @@ class Logger(object):
         self.txt_file.flush()
         print(text)
 
-    """
-    def log_performance(self, timestep, reward):
-        ''' Log a point in the curve
-        Args:
-            timestep (int): the timestep of the current point
-            reward (float): the reward of the current point
-        '''
-        self.writer.writerow({'timestep': timestep, 'reward': reward})
-        print('')
-        self.log('----------------------------------------')
-        self.log('  timestep     |  ' + str(timestep))
-        self.log('  reward       |  ' + str(reward))
-        self.log('----------------------------------------')
-    """
-
-    def log_performance(self, iteration, reward, loss=None, states=None, actions=None, predictions=None, q_values=None, current_q=None,
-                        expected_q=None):
+    def log_performance(self, iteration, reward, loss=None, states=None, actions=None, predictions=None,
+                        q_values=None, current_q=None, expected_q=None):
         ''' Log a point in the curve
         Args:
             iteration (int): the iteration of the current point

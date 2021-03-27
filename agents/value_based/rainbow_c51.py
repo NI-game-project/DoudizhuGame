@@ -2,7 +2,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from utils_global import remove_illegal, action_mask
+from agents.value_based.utils import disable_gradients
+from utils_global import action_mask
 from agents.common.model import C51DuelDQN, C51DQN
 from agents.common.buffers import NStepPERBuffer, NStepBuffer, PrioritizedBuffer, BasicBuffer
 from agents.value_based.dqn_base_agent import DQNBaseAgent
@@ -58,8 +59,8 @@ class RainbowAgent(DQNBaseAgent):
                  state_shape,
                  num_actions,
                  num_atoms=51,
-                 v_min=-1.,
-                 v_max=1.,
+                 v_min=-10.,
+                 v_max=10.,
                  lr=0.00001,
                  gamma=0.99,
                  epsilon_start=1.0,
@@ -122,11 +123,10 @@ class RainbowAgent(DQNBaseAgent):
         self.online_net.train()
         self.target_net.train()
         # Disable calculations of gradients of the target network.
-        for param in self.target_net.parameters():
-            param.requires_grad = False
+        disable_gradients(self.target_net)
 
         # initialize optimizer(Adam) for online network
-        self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=lr)
+        self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=lr, eps=0.00015)
 
         # initialize memory buffer
         if self.n_step:
@@ -138,11 +138,6 @@ class RainbowAgent(DQNBaseAgent):
             self.memory_buffer = PrioritizedBuffer(replay_memory_size, batch_size)
         else:
             self.memory_buffer = BasicBuffer(replay_memory_size, batch_size)
-
-    @staticmethod
-    def KL_divergence_two_dist(dist_p, dist_q):
-        kld = torch.sum(dist_p * (torch.log(dist_p) - torch.log(dist_q)))
-        return kld
 
     def projection_distribution(self, next_dist, rewards, dones):
         """
@@ -160,48 +155,22 @@ class RainbowAgent(DQNBaseAgent):
         support = self.support.unsqueeze(0).expand_as(next_dist)
 
         # Compute projection of the application of the Bellman operator.
-        # compute projected values for each particular atom zi according to: zi=r+γzi
-        # For calculating Tz we use the support to calculate ALL possible expected returns,
-        # i.e. the full distribution, without looking at the probabilities yet.
         # Clamp values so they fall within the support of Z values
         if self.use_n_step:
-            Tz = rewards + (1 - dones) * support * (self.gamma ** self.n_step)
+            Tz = rewards + (self.gamma ** self.n_step) * (1 - dones) * support
         else:
-            Tz = rewards + (1 - dones) * support * self.gamma
+            Tz = rewards + self.gamma * (1 - dones) * support
 
         Tz = Tz.clamp(min=self.v_min, max=self.v_max)
 
         # Compute categorical indices for distributing the probability
-        #  1. Find which values of the discrete fixed distribution are the closest lower (l) and
-        #     upper value (u) to the values obtained from Tz (b). As a reminder, b is the new support
-        #     of our return distribution shifted from the original network output support when we
-        #     computed Tz. In other words, b is how many times deltaz from Vmin to get to
-        #     Tz by definition: b = (Tz - Vmin) / Δz
-        #     We've expressed Tz in terms of b (the misaligned support but still similar in the sense
-        #     of exact same starting point and exact same distance between the atoms as the original
-        #     support). Still misaligned but that's why do the redistribution in terms of proportionality.
+        # 1. Find which values of the discrete fixed distribution are the closest lower (l) and
+        #     upper value (u) to the values obtained from Tz (b).
         b = (Tz - self.v_min) / self.delta_z
         l = b.floor().long()
         u = b.ceil().long()
 
-        # 2. Distribute probability of Tz. Since b is most likely not having the exact value of
-        # one of our predefined atoms, we split its probability mass between the closest atoms
-        #   (l, u) in proportion to their OPPOSED distance to b so that the closest atom receives
-        #    most of the mass in proportion to their distances.
-        #                          u
-        #              l    b      .
-        #              ._d__.__2d__|
-        #         ...  |    :      |  ...    mass_l += mass_b * 2 / 3
-        #              |    :      |         mass_u += mass_b * 1 / 3
-        #    Vmin ----------------------- Vmax
-        #    The probability mass becomes 0 when l = b = u (b is int). Note that for this case
-        #    u - b + b - l = b - b + b - b = 0
-        #    To fix this, we change  l -= 1 which would result in:
-        #    u - b + b - l = b - b + b - (b - 1) = 1
-        #    Except in the case where b = 0, because l -=1 would make l = -1
-        #    Which would mean that we are subtracting the probability mass! To handle this case we
-        #    would only do l -=1 if u > 0, and for the particular case of b = u = l = 0 we would
-        #    keep l = 0 but u =+ 1
+        # 2. Distribute probability of Tz.
         l[(u > 0) * (l == u)] -= 1  # Handles the case of u = b = l != 0
         u[(l < (self.num_atoms - 1)) * (l == u)] += 1  # Handles the case of u = b = l = 0
 
@@ -210,9 +179,7 @@ class RainbowAgent(DQNBaseAgent):
             .unsqueeze(1).expand(self.batch_size, self.num_atoms)
 
         proj_dist = torch.zeros(next_dist.size(), dtype=torch.float32)
-        # Distribute probabilities to the closest lower atom in inverse proportion to the
-        # distance to the atom. For efficiency, we are adding the values to the flattened view of
-        # the array not flattening the array itself.
+        # Distribute probabilities to the closest lower atom in inverse proportion to the distance to the atom.
         proj_dist.view(-1).index_add_(0, (l + offset).view(-1), (next_dist * (u.float() - b)).view(-1))
         proj_dist.view(-1).index_add_(0, (u + offset).view(-1), (next_dist * (b - l.float())).view(-1))
 
@@ -239,16 +206,15 @@ class RainbowAgent(DQNBaseAgent):
             dist = self.online_net(state_obs).cpu().detach()
             dist = dist * self.support.expand_as(dist)
 
-            # get q_values by summing up over the distribution of each action,
-            # then calculate a softmax distribution over q_values
+            # get q_values by summing up over the distribution of each action
             q_values = dist.sum(2)[0]
-            softmax_q_vals = self.softmax(q_values).numpy()
 
+            # Do action mask for q_values. i.e., set q_values of illegal actions to -inf
+            probs = action_mask(self.num_actions, q_values, legal_actions)
+            max_action = np.argmax(probs.numpy())
             predicted_action = np.argmax(q_values.numpy())
-            probs = remove_illegal(softmax_q_vals, legal_actions)
-            max_action = np.argmax(probs)
 
-            self.q_values = q_values
+            # self.q_values = q_values.numpy()
 
         return probs, max_action, predicted_action
 
@@ -292,7 +258,7 @@ class RainbowAgent(DQNBaseAgent):
             # next_dist: [batch_size, num_actions, num_atoms]
             if self.double:
                 # Reset noise of online network to decorrelate between action selection and value distribution calculation.
-                if self.noisy:
+                if self.noisy == 'noisy':
                     self.reset_noise()
                 # use online network to select next argmax action
                 next_dist_online = self.online_net(next_states)
@@ -301,7 +267,6 @@ class RainbowAgent(DQNBaseAgent):
                 next_dist_online = next_dist_target
 
             # get q_values by summing up over the last dim of distribution
-            # next_q_values: [batch_size, num_actions]
             next_q_values = (next_dist_online * self.support.expand_as(next_dist_online)).sum(2)
 
             # Do action mask for q_values of next_state if not done (i.e., set q_values of illegal actions to -inf)
@@ -309,12 +274,12 @@ class RainbowAgent(DQNBaseAgent):
                 next_q_values[i] = action_mask(self.num_actions, next_q_values[i], next_legal_actions[i])
 
             # Select greedy actions a∗ in next state using the target(online if double) network., a∗=argmaxa′Qθ(s′,a′)
-            next_argmax_action = next_q_values.max(1)[1]
+            next_argmax_actions = next_q_values.max(1)[1]
             # next_argmax_action: [batch_size, 1, num_atoms]
-            next_argmax_action = next_argmax_action.unsqueeze(1).unsqueeze(1).expand(self.batch_size, 1, self.num_atoms)
+            next_argmax_actions = next_argmax_actions.unsqueeze(1).unsqueeze(1).expand(self.batch_size, 1, self.num_atoms)
             # Use greedy actions to select target value distributions.
             # next_dist: [batch_size, num_atoms]
-            next_dist = next_dist_target.gather(1, next_argmax_action).squeeze(1)
+            next_dist = next_dist_target.gather(1, next_argmax_actions).squeeze(1)
 
             # project next value distribution onto the support
             proj_dists = self.projection_distribution(next_dist, rewards, dones)
@@ -326,8 +291,9 @@ class RainbowAgent(DQNBaseAgent):
         error = -(proj_dists * dists.log()).sum(1)
 
         if self.per:
-            # update per priorities
-            self.memory_buffer.update_priorities(indices, abs(error).detach().numpy())
+            # update per_double_dqn priorities
+            priorities = torch.abs(error).detach().numpy()
+            self.memory_buffer.update_priorities(indices, priorities)
             # calculate importance-weighted (Prioritized Experience Replay) batch loss
             loss = (error * is_weights).mean()
         else:

@@ -96,6 +96,7 @@ class MCTSAgent:
 
         temp_timestep = self.env.timestep
         for i in range(self.num_simulations):
+            # TODO: reshuffle other players' hand before every simulation, so that the agent will not remember the cards
             # Run a single random rollout from the root to the leaf,
             # get payoff at the leaf and propagate it back through its parents.
             # State is modified in-place, so a copy of environment must be provided.

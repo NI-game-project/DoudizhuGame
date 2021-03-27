@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+from agents.value_based.utils import disable_gradients
 from utils_global import action_mask
 from agents.common.model import DQN, DuelingDQN, DeepConvNet
 from agents.common.buffers import BasicBuffer, NStepBuffer
@@ -56,7 +57,7 @@ class NStepDQNAgent(DQNBaseAgent):
                  loss_type='mse',
                  double=True,
                  dueling=False,
-                 noisy=None,
+                 noisy=False,
                  use_n_step=False,
                  n_step=3,
                  clip=False,
@@ -102,8 +103,7 @@ class NStepDQNAgent(DQNBaseAgent):
         self.online_net.train()
         self.target_net.train()
         # Disable calculations of gradients of the target network.
-        for param in self.target_net.parameters():
-            param.requires_grad = False
+        disable_gradients(self.target_net)
 
         # initialize optimizer for online network
         self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=lr)

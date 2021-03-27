@@ -228,33 +228,6 @@ class SumTree:
         # update the change to parent nodes
         self._propagate(tree_idx, change)
 
-    def _propagate(self, idx, change):
-        parent = (idx - 1) // 2
-        # update priority of parent node
-        self.tree[parent] += change
-
-        if parent != 0:
-            # end recursion if root node is the parent
-            self._propagate(parent, change)
-
-    def _retrieve(self, idx, s):
-        # idx: parent node beginning at root
-        # s: uniform random priority within a segment
-
-        # left and right child for idx
-        left = 2 * idx + 1
-        right = left + 1
-        # base condition to break once tree traversal is complete
-        if left >= len(self.tree):
-            return idx
-        # find the node with maximum priority and traverse the subtree
-        if s <= self.tree[left]:
-            # move down to left of tree with parent node = left
-            return self._retrieve(left, s)
-        else:
-            # move down to right of tree with parent node = right
-            return self._retrieve(right, s - self.tree[left])
-
     def get(self, s):
         """
         get the leaf index, priority value of that leaf, and experience stored in that index
@@ -266,6 +239,39 @@ class SumTree:
 
         # return the index of priorities, priorities, and experiences
         return idx, self.tree[idx], self.data[data_idx]
+
+    def _propagate(self, idx, change):
+        """
+        update to the root node, change the sum of priority value in all parent nodes
+        """
+        parent = (idx - 1) // 2
+        # update priority of parent node
+        self.tree[parent] += change
+
+        if parent != 0:
+            # end recursion if root node is the parent
+            self._propagate(parent, change)
+
+    def _retrieve(self, idx, s):
+        """
+        find sample(experience) on leaf node
+        """
+        # idx: parent node beginning at root
+        # s: uniform random priority within a segment
+
+        # left and right child for idx
+        left = 2 * idx + 1
+        right = left + 1
+        # base condition to break once tree traversal is complete(when there's no more child node)
+        if left >= len(self.tree):
+            return idx
+        # find the node with maximum priority and traverse the subtree
+        if s <= self.tree[left]:
+            # move down to left of tree with parent node = left
+            return self._retrieve(left, s)
+        else:
+            # move down to right of tree with parent node = right
+            return self._retrieve(right, s - self.tree[left])
 
     @property
     def total_priority(self):
@@ -292,10 +298,11 @@ class PrioritizedBuffer:
         self.batch_size = batch_size
         # build a SumTree
         self.tree = SumTree(self.capacity)
-        self.max_error = 1.0
+        # clipped absolute error
+        self.abs_error_upper = 1.0
         # a small positive constant that ensures that no transition has zero priority.
         self.epsilon = 0.01
-        # control the tradeoff between sampling only experience with high priority and randomly
+        # control the tradeoff between sampling only experience with high priority and randomly, [0, 1]
         self.alpha = 0.6
         # importance sampling, from initial value incrementing to 1.
         self.beta = 0.4
@@ -310,7 +317,7 @@ class PrioritizedBuffer:
         # untrained neural network is likely to return a value around zero for every input,
         # use a minimum priority to ensure every experience get a chance to be sampled
         if max_priority == 0:
-            max_priority = self.max_error
+            max_priority = self.abs_error_upper
         experience = (state, legal_actions, action, reward, next_state, next_legal_actions, done)
         self.tree.add(max_priority, experience)
 
@@ -346,7 +353,6 @@ class PrioritizedBuffer:
         # normalize weights by 1/maxi wi for stability
         # keep all weights within a reasonable range, avoiding the possibility of extremely large updates
         is_weights /= np.max(is_weights)
-
         state_batch = []
         legal_actions_batch = []
         action_batch = []
@@ -370,7 +376,7 @@ class PrioritizedBuffer:
 
     def update_priorities(self, tree_idx, abs_error):
         abs_error += self.epsilon
-        clipped_errors = np.minimum(abs_error, self.max_error)
+        clipped_errors = np.minimum(abs_error, self.abs_error_upper)
         # The error is converted to priority by p=(error+ϵ)**α
         priorities = np.power(clipped_errors, self.alpha)
 
@@ -389,7 +395,8 @@ class NStepPERBuffer(PrioritizedBuffer):
         self.batch_size = batch_size
         # build a SumTree
         self.tree = SumTree(self.capacity)
-        self.max_error = 1.0
+        # clipped absolute error
+        self.abs_error_upper = 1.0
         # a small positive constant that ensures that no transition has zero priority.
         self.epsilon = 0.01
         # control the tradeoff between sampling only experience with high priority and randomly
@@ -415,7 +422,7 @@ class NStepPERBuffer(PrioritizedBuffer):
 
         max_priority = self.tree.max_p
         if max_priority == 0:
-            max_priority = self.max_error
+            max_priority = self.abs_error_upper
 
         state = np.expand_dims(state, 0)
         next_state = np.expand_dims(next_state, 0)

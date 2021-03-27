@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-import torch.functional as F
 
+from agents.value_based.utils import disable_gradients
 from utils_global import action_mask
 from agents.common.model import DQN, DuelingDQN, DeepConvNet
 from agents.common.buffers import PrioritizedBuffer, BasicBuffer
@@ -96,8 +96,7 @@ class PERDQNAgent(DQNBaseAgent):
         self.online_net.train()
         self.target_net.train()
         # Disable calculations of gradients of the target network.
-        for param in self.target_net.parameters():
-            param.requires_grad = False
+        disable_gradients(self.target_net)
 
         # initialize optimizer for online network
         self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=lr)
@@ -174,8 +173,9 @@ class PERDQNAgent(DQNBaseAgent):
         # calculate loss and update priorities
         # an error of a sample is the distance between the Q(s, a) and its target T(S): error=|Q(s,a)−T(S)|
         # store this error in the agent’s memory along with sample index and update it each learning step.
-        td_error = torch.abs(expected_q_values - q_values)
-        self.memory_buffer.update_priorities(indices, td_error.detach().numpy())
+        td_error = expected_q_values - q_values
+        priorities = torch.abs(td_error).detach().numpy()
+        self.memory_buffer.update_priorities(indices, priorities)
 
         # calculate the loss for every element in the batch, (reduction='none')
         error = self.criterion(expected_q_values, q_values)
