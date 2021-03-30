@@ -91,23 +91,24 @@ class NoisyLinear(nn.Module):
 
 
 class DQN(nn.Module):
-    def __init__(self, state_shape, num_actions, use_conv=False, noisy=False):
+    def __init__(self, state_shape, num_actions, hidden_size=512, use_conv=False, noisy=False):
         super(DQN, self).__init__()
 
         self.use_conv = use_conv
+        self.hidden_size = hidden_size
 
         flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
 
-        self.fc1 = nn.Linear(flattened_state_shape, 512)
+        self.fc1 = nn.Linear(flattened_state_shape, self.hidden_size)
         if noisy:
 
-            self.fc2 = NoisyLinear(512, 512)
-            self.fc3 = NoisyLinear(512, num_actions)
+            self.fc2 = NoisyLinear(self.hidden_size, self.hidden_size)
+            self.fc3 = NoisyLinear(self.hidden_size, num_actions)
 
         else:
 
-            self.fc2 = nn.Linear(512, 512)
-            self.fc3 = nn.Linear(512, num_actions)
+            self.fc2 = nn.Linear(self.hidden_size, self.hidden_size)
+            self.fc3 = nn.Linear(self.hidden_size, num_actions)
 
     def forward(self, state):
 
@@ -131,27 +132,28 @@ class DuelingDQN(nn.Module):
     only tracks the relative change of the value of an action compared to its state, much more stable over time.
     """
 
-    def __init__(self, state_shape, num_actions, use_conv=False, noisy=False):
+    def __init__(self, state_shape, num_actions, hidden_size=512, use_conv=False, noisy=False):
         super(DuelingDQN, self).__init__()
 
         self.use_conv = use_conv
+        self.hidden_size = hidden_size
 
         flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
 
-        self.fc1 = nn.Linear(flattened_state_shape, 512)
+        self.fc1 = nn.Linear(flattened_state_shape, self.hidden_size)
         if noisy:
 
-            self.fc2_adv = NoisyLinear(512, 512)
-            self.fc2_val = NoisyLinear(512, 512)
-            self.advantage = NoisyLinear(512, num_actions)
-            self.value = NoisyLinear(512, 1)
+            self.fc2_adv = NoisyLinear(self.hidden_size, self.hidden_size)
+            self.fc2_val = NoisyLinear(self.hidden_size, self.hidden_size)
+            self.advantage = NoisyLinear(self.hidden_size, num_actions)
+            self.value = NoisyLinear(self.hidden_size, 1)
 
         else:
 
-            self.fc2_adv = nn.Linear(512, 512)
-            self.fc2_val = nn.Linear(512, 512)
-            self.advantage = nn.Linear(512, num_actions)
-            self.value = nn.Linear(512, 1)
+            self.fc2_adv = nn.Linear(self.hidden_size, self.hidden_size)
+            self.fc2_val = nn.Linear(self.hidden_size, self.hidden_size)
+            self.advantage = nn.Linear(self.hidden_size, num_actions)
+            self.value = nn.Linear(self.hidden_size, 1)
 
     def forward(self, state):
         x = torch.flatten(state, start_dim=1)
@@ -179,7 +181,7 @@ class C51DQN(nn.Module):
      the output layer predicts the distribution of the returns for each action a in state s, instead of its mean Qπ(s,a)
     """
 
-    def __init__(self, state_shape, num_actions, num_atoms=51, use_conv=False, noisy=False):
+    def __init__(self, state_shape, num_actions, hidden_size=512, num_atoms=51, use_conv=False, noisy=False):
         """Initialize parameters and build model.
                 Params
                     state_shape (int): Dimension of state
@@ -191,19 +193,20 @@ class C51DQN(nn.Module):
         self.use_conv = use_conv
         self.num_atoms = num_atoms
         self.num_actions = num_actions
+        self.hidden_size = hidden_size
         self.flatten = Flatten()
 
         flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
 
-        self.fc1 = nn.Linear(flattened_state_shape, 512)
+        self.fc1 = nn.Linear(flattened_state_shape, self.hidden_size)
         if noisy:
 
-            self.fc2 = NoisyLinear(512, 512)
-            self.fc3 = NoisyLinear(512, self.num_actions * self.num_atoms)
+            self.fc2 = NoisyLinear(self.hidden_size, self.hidden_size)
+            self.fc3 = NoisyLinear(self.hidden_size, self.num_actions * self.num_atoms)
 
         else:
-            self.fc2 = nn.Linear(512, 512)
-            self.fc3 = nn.Linear(512, self.num_actions * self.num_atoms)
+            self.fc2 = nn.Linear(self.hidden_size, self.hidden_size)
+            self.fc3 = nn.Linear(self.hidden_size, self.num_actions * self.num_atoms)
 
     def forward(self, state):
         x = torch.flatten(state, start_dim=1)
@@ -222,27 +225,28 @@ class C51DQN(nn.Module):
 
 
 class C51DuelDQN(nn.Module):
-    def __init__(self, state_shape, num_actions, num_atoms=51, use_conv=False, noisy=False):
+    def __init__(self, state_shape, num_actions, hidden_size=512,  num_atoms=51, use_conv=False, noisy=False):
         super(C51DuelDQN, self).__init__()
 
         self.use_conv = use_conv
         self.num_atoms = num_atoms
         self.num_actions = num_actions
+        self.hidden_size = hidden_size
 
         flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
 
-        self.fc1 = nn.Linear(flattened_state_shape, 512)
+        self.fc1 = nn.Linear(flattened_state_shape, self.hidden_size)
         if noisy:
 
-            self.fc2_adv = NoisyLinear(512, 512)
-            self.fc2_val = NoisyLinear(512, 512)
-            self.advantage = NoisyLinear(512, self.num_actions * self.num_atoms)
-            self.value = NoisyLinear(512, self.num_atoms)
+            self.fc2_adv = NoisyLinear(self.hidden_size, self.hidden_size)
+            self.fc2_val = NoisyLinear(self.hidden_size, self.hidden_size)
+            self.advantage = NoisyLinear(self.hidden_size, self.num_actions * self.num_atoms)
+            self.value = NoisyLinear(self.hidden_size, self.num_atoms)
         else:
-            self.fc2_adv = nn.Linear(512, 512)
-            self.fc2_val = nn.Linear(512, 512)
-            self.advantage = nn.Linear(512, self.num_actions * self.num_atoms)
-            self.value = nn.Linear(512, self.num_atoms)
+            self.fc2_adv = nn.Linear(self.hidden_size, self.hidden_size)
+            self.fc2_val = nn.Linear(self.hidden_size, self.hidden_size)
+            self.advantage = nn.Linear(self.hidden_size, self.num_actions * self.num_atoms)
+            self.value = nn.Linear(self.hidden_size, self.num_atoms)
 
     def forward(self, state):
         x = torch.flatten(state, start_dim=1)
@@ -305,14 +309,15 @@ class DeepConvNet(nn.Module):
 
 class AveragePolicyNet(nn.Module):
 
-    def __init__(self, state_shape, num_actions, use_conv=False):
+    def __init__(self, state_shape, num_actions, hidden_size=512, use_conv=False):
         super(AveragePolicyNet, self).__init__()
         self.use_conv = use_conv
+        self.hidden_size = hidden_size
 
         flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
-        self.fc1 = nn.Linear(flattened_state_shape, 512)
-        self.fc2 = nn.Linear(512, 512)
-        self.fc3 = nn.Linear(512, num_actions)
+        self.fc1 = nn.Linear(flattened_state_shape, self.hidden_size)
+        self.fc2 = nn.Linear(self.hidden_size, self.hidden_size)
+        self.fc3 = nn.Linear(self.hidden_size, num_actions)
 
     def forward(self, state):
         x = torch.flatten(state, start_dim=1)
@@ -375,7 +380,7 @@ class PolicyNetwork(nn.Module):
 
 class QRDQN(nn.Module):
     # output of the network: #actions * #quantiles
-    def __init__(self, state_shape, num_actions, n_quantile, use_conv=False, noisy=False):
+    def __init__(self, state_shape, num_actions, n_quantile, hidden_size=512, use_conv=False, noisy=False):
         """Initialize parameters and build model.
                 Params
                     state_shape (int): Dimension of state
@@ -387,19 +392,20 @@ class QRDQN(nn.Module):
         self.use_conv = use_conv
         self.n_quantile = n_quantile
         self.num_actions = num_actions
+        self.hidden_size = hidden_size
         self.flatten = Flatten()
 
         flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
 
-        self.fc1 = nn.Linear(flattened_state_shape, 512)
+        self.fc1 = nn.Linear(flattened_state_shape, self.hidden_size)
         if noisy:
 
-            self.fc2 = NoisyLinear(512, 512)
-            self.fc3 = NoisyLinear(512, self.num_actions * self.n_quantile)
+            self.fc2 = NoisyLinear(self.hidden_size, self.hidden_size)
+            self.fc3 = NoisyLinear(self.hidden_size, self.num_actions * self.n_quantile)
 
         else:
-            self.fc2 = nn.Linear(512, 512)
-            self.fc3 = nn.Linear(512, self.num_actions * self.n_quantile)
+            self.fc2 = nn.Linear(self.hidden_size, self.hidden_size)
+            self.fc3 = nn.Linear(self.hidden_size, self.num_actions * self.n_quantile)
 
     def forward(self, state):
         x = torch.flatten(state, start_dim=1)
@@ -419,27 +425,28 @@ class QRDQN(nn.Module):
 
 class QRDuelDQN(nn.Module):
 
-    def __init__(self, state_shape, num_actions, n_quantile=32, use_conv=False, noisy=False):
+    def __init__(self, state_shape, num_actions, n_quantile, hidden_size=512, use_conv=False, noisy=False):
         super(QRDuelDQN, self).__init__()
 
         self.use_conv = use_conv
         self.n_quantile = n_quantile
         self.num_actions = num_actions
+        self.hidden_size = hidden_size
 
         flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
 
-        self.fc1 = nn.Linear(flattened_state_shape, 512)
+        self.fc1 = nn.Linear(flattened_state_shape, self.hidden_size)
         if noisy:
 
-            self.fc2_adv = NoisyLinear(512, 512)
-            self.fc2_val = NoisyLinear(512, 512)
-            self.advantage = NoisyLinear(512, self.num_actions * self.n_quantile)
-            self.value = NoisyLinear(512, self.n_quantile)
+            self.fc2_adv = NoisyLinear(self.hidden_size, self.hidden_size)
+            self.fc2_val = NoisyLinear(self.hidden_size, self.hidden_size)
+            self.advantage = NoisyLinear(self.hidden_size, self.num_actions * self.n_quantile)
+            self.value = NoisyLinear(self.hidden_size, self.n_quantile)
         else:
-            self.fc2_adv = nn.Linear(512, 512)
-            self.fc2_val = nn.Linear(512, 512)
-            self.advantage = nn.Linear(512, self.num_actions * self.n_quantile)
-            self.value = nn.Linear(512, self.n_quantile)
+            self.fc2_adv = nn.Linear(self.hidden_size, self.hidden_size)
+            self.fc2_val = nn.Linear(self.hidden_size, self.hidden_size)
+            self.advantage = nn.Linear(self.hidden_size, self.num_actions * self.n_quantile)
+            self.value = nn.Linear(self.hidden_size, self.n_quantile)
 
     def forward(self, state):
         x = torch.flatten(state, start_dim=1)
@@ -467,7 +474,7 @@ class QRDuelDQN(nn.Module):
 
 
 class FQFDQN(nn.Module):
-    def __init__(self, state_shape, num_actions, quant_num, cosine_num, use_conv=False, noisy=False):
+    def __init__(self, state_shape, num_actions, quant_num, cosine_num, hidden_size=512, use_conv=False, noisy=False):
 
         super(FQFDQN, self).__init__()
 
@@ -475,20 +482,21 @@ class FQFDQN(nn.Module):
         self.quant_num = quant_num
         self.cosine_num = cosine_num
         self.num_actions = num_actions
+        self.hidden_size = hidden_size
         self.flatten = Flatten()
 
         flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
 
-        self.fc1 = nn.Linear(flattened_state_shape, 512)
-        self.cosine = nn.Linear(self.cosine_num, 512)
+        self.fc1 = nn.Linear(flattened_state_shape, self.hidden_size)
+        self.cosine = nn.Linear(self.cosine_num, self.hidden_size)
         if noisy:
 
-            self.fc2 = NoisyLinear(512, 512)
-            self.fc3 = NoisyLinear(512, self.num_actions * self.quant_num)
+            self.fc2 = NoisyLinear(self.hidden_size, self.hidden_size)
+            self.fc3 = NoisyLinear(self.hidden_size, self.num_actions * self.quant_num)
 
         else:
-            self.fc2 = nn.Linear(512, 512)
-            self.fc3 = nn.Linear(512, self.num_actions * self.quant_num)
+            self.fc2 = nn.Linear(self.hidden_size, self.hidden_size)
+            self.fc3 = nn.Linear(self.hidden_size, self.num_actions * self.quant_num)
 
     def forward(self, state):
         x = torch.flatten(state, start_dim=1)

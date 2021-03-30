@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from agents.value_based.nstep_noisy_duel_double_dqn import DQNAgent
+from agents.value_based.rainbow_c51 import RainbowAgent
 from agents.common.buffers import ReservoirMemoryBuffer
 from agents.common.model import AveragePolicyNet
 from utils_global import remove_illegal
@@ -25,18 +25,19 @@ class NFSPAgent:
         gamma (float) : discount parameter
         device (torch.device) : device to put models on
     """
+
     def __init__(self,
                  # these are the hyperparameters in nfsp paper
                  scope,
                  num_actions,
                  state_shape,
-                 sl_lr=.005,
-                 rl_lr=.1,
-                 batch_size=256,
-                 train_every=128,
+                 sl_lr=.00005,
+                 rl_lr=.00005,
+                 batch_size=128,
+                 train_every=64,
                  sl_memory_init_size=1000,
                  sl_memory_size=int(2e6),
-                 q_train_every=128,
+                 q_train_every=64,
                  epsilon_decay_steps=int(1e5),
                  eta=.2,
                  gamma=.99,
@@ -66,16 +67,18 @@ class NFSPAgent:
         # average policy can be modeled as a Deep Q Network and we take softmax after final layer
         self.average_policy = AveragePolicyNet(state_shape=state_shape,
                                                num_actions=num_actions,
-                                               use_conv=True,).to(self.device)
+                                               use_conv=True, ).to(self.device)
         self.average_policy.eval()
 
         # action value and target network are Deep Q Networks
-        self.rl_agent = DQNAgent(state_shape=self.state_shape,
-                                 num_actions=self.num_actions,
-                                 lr=self.rl_lr,
-                                 batch_size=128,
-                                 train_every=64,
-                                 )
+        self.rl_agent = RainbowAgent(state_shape=self.state_shape,
+                                     num_actions=self.num_actions,
+                                     lr=self.rl_lr,
+                                     batch_size=64,
+                                     train_every=32,
+                                     epsilon_start=0.06,
+                                     epsilon_end=0,
+                                     )
 
         # initialize optimizers
         """
@@ -131,8 +134,6 @@ class NFSPAgent:
             q_values = self.average_policy(state_obs)[0].cpu().detach().numpy()
             probs = remove_illegal(q_values, state['legal_actions'])
             action = np.random.choice(self.num_actions, p=probs)
-            # print('sl: ', action)
-            # print(q_values, action)
             return action, probs
 
     def greedy_ap_pick_action(self, state):
@@ -154,7 +155,7 @@ class NFSPAgent:
 
     def step(self, state):
         """
-        Given state, produce actions to generate training data. Choose action according to set policy parameter.
+        Given state, produce actions to generate training data. Choose action according to policy parameter.
         Input:
             state (dict)
                 'obs' : actual state representation
@@ -207,7 +208,7 @@ class NFSPAgent:
         self.timestep += 1
 
         if self.policy == 'best_response':
-            # this version saving the predicted action from dqn_eval instead of the action that was taken by the agent.
+            # Store (state, action) to Reservoir Buffer for Supervised Learning
             self.sl_buffer.add_sa(state['obs'], action)
 
         if len(self.sl_buffer.memory) >= self.sl_memory_init_size and self.timestep % self.train_every == 0:
@@ -237,16 +238,15 @@ class NFSPAgent:
         # [batch, 1]
         actions = torch.LongTensor(actions).to(self.device)
 
-        #### optimizing the log-prob of past actions taken as in NFSP paper
         # [batch, action_num(309)]
         probs = self.average_policy(states)
         # [batch, 1]
         prob = probs.gather(1, actions.unsqueeze(1)).squeeze(1)
         # adding a small eps to torch.log(), avoiding nan in the log_prob
         eps = 1e-7
+        # optimizing the log-prob of past actions taken
         log_prob = torch.log(prob + eps)
 
-        ### look into torch.nll_loss
         loss = -log_prob.mean()
 
         loss.backward()
@@ -263,8 +263,7 @@ class NFSPAgent:
         """
         state_dict = dict()
         state_dict['average_policy'] = self.average_policy.state_dict()
-        state_dict['dqn_online'] = self.rl_agent.online_net.state_dict()
-        state_dict['dqn_target'] = self.rl_agent.target_net.state_dict()
+        state_dict['rl_online'] = self.rl_agent.online_net.state_dict()
 
         torch.save(state_dict, file_path)
 
@@ -277,5 +276,4 @@ class NFSPAgent:
 
         state_dict = torch.load(filepath, map_location=self.device)
         self.average_policy.load_state_dict(state_dict['average_policy'])
-        self.rl_agent.online_net.load_state_dict(state_dict['dqn_online'])
-        self.rl_agent.target_net.load_state_dict(state_dict['dqn_target'])
+        self.rl_agent.online_net.load_state_dict(state_dict['rl_online'])
