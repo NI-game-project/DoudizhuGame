@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from agents.common.model import DQN, DeepConvNet
 from agents.value_based.utils import disable_gradients
-from utils_global import remove_illegal, action_mask
+from utils_global import action_mask
 from agents.common.buffers import BasicBuffer
 
 """
@@ -21,6 +21,7 @@ class DQNBaseAgent:
         epsilon_start (float) : start value of epsilon
         epsilon_end (float) : stop value of epsilon
         epsilon_decay_steps (int) : how often should we decay epsilon value
+        epsilon_eval (float) : epsilon value for evaluation
         batch_size (int) : batch sizes to use when training networks
         train_every (int) : how often to update the online work
         replay_memory_init_size (int) : minimum number of experiences to start training
@@ -39,11 +40,12 @@ class DQNBaseAgent:
     def __init__(self,
                  state_shape,
                  num_actions,
-                 lr=0.0001,
+                 lr=0.00001,
                  gamma=0.99,
                  epsilon_start=1.0,
                  epsilon_end=0.05,
                  epsilon_decay_steps=40000,
+                 epsilon_eval=0.001,
                  batch_size=32,
                  train_every=1,
                  replay_memory_size=int(2e5),
@@ -52,7 +54,7 @@ class DQNBaseAgent:
                  soft_update_target_every=10,
                  hard_update_target_every=1000,
                  loss_type='huber',
-                 double=False,
+                 double=True,
                  noisy=False,
                  clip=True,
                  use_conv=False,
@@ -76,6 +78,7 @@ class DQNBaseAgent:
         self.hard_update_every = hard_update_target_every
         self.epsilon_decay_steps = epsilon_decay_steps
         self.epsilons = np.linspace(epsilon_start, epsilon_end, epsilon_decay_steps)
+        self.epsilon_eval = epsilon_eval
         self.epsilon = 0
         self.batch_size = batch_size
         self.train_every = train_every
@@ -108,7 +111,8 @@ class DQNBaseAgent:
         disable_gradients(self.target_net)
 
         # initialize optimizer for online network
-        self.optimizer = torch.optim.RMSprop(self.online_net.parameters(), lr=self.lr, momentum=0.95)
+        # self.optimizer = torch.optim.RMSprop(self.online_net.parameters(), lr=self.lr, momentum=0.95)
+        self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=self.lr)
 
         # initialize loss function for network
         if loss_type == 'mse':
@@ -207,7 +211,11 @@ class DQNBaseAgent:
         if use_max:
             action = max_action
         else:
-            action = np.random.choice(state['legal_actions'])
+            if np.random.uniform() < self.epsilon_eval:
+                # pick an action randomly from legal actions
+                action = np.random.choice(state['legal_actions'])
+            else:
+                action = max_action
 
         self.actions.append(max_action)
         self.predictions.append(predicted_action)
@@ -273,7 +281,10 @@ class DQNBaseAgent:
 
         with torch.no_grad():
             # Calculate q values of next states.
-            next_q_values = self.online_net(next_states)
+            if self.double:
+                next_q_values = self.target_net(next_states)
+            else:
+                next_q_values = self.online_net(next_states)
 
             # Do action mask for q_values of next_state if not done (i.e., set q_values of illegal actions to -inf)
             for i in range(self.batch_size):
@@ -304,7 +315,7 @@ class DQNBaseAgent:
         self.loss = loss.item()
 
         # soft/hard update the parameters of the target network and increase the training time
-        # self.update_target_net(self.soft_update)
+        self.update_target_net(self.soft_update)
         self.train_time += 1
 
         self.expected_q_values = expected_q_values
@@ -349,7 +360,6 @@ class DQNBaseAgent:
 
         state_dict = dict()
         state_dict['online_net'] = self.online_net.state_dict()
-        state_dict['target_net'] = self.target_net.state_dict()
 
         torch.save(state_dict, file_path)
 
@@ -362,4 +372,3 @@ class DQNBaseAgent:
 
         state_dict = torch.load(filepath, map_location=self.device)
         self.online_net.load_state_dict(state_dict['online_net'])
-        self.target_net.load_state_dict(state_dict['target_net'])

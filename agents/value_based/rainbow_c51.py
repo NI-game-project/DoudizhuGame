@@ -70,24 +70,33 @@ class RainbowAgent(DQNBaseAgent):
                  train_every=1,
                  replay_memory_size=int(2e5),
                  replay_memory_init_size=1000,
-                 soft_update=False,
-                 soft_update_target_every=10,
                  hard_update_target_every=1000,
-                 loss_type=None,
-                 clip=False,
                  double=True,
                  dueling=True,
                  noisy=True,
                  use_n_step=True,
                  n_step=3,
                  per=True,
+                 clip=True,
                  use_conv=False,
                  device=None):
 
-        super().__init__(state_shape, num_actions, lr, gamma, epsilon_start, epsilon_end, epsilon_decay_steps,
-                         batch_size, train_every, replay_memory_size, replay_memory_init_size, soft_update,
-                         soft_update_target_every, hard_update_target_every, loss_type, double, noisy, clip, use_conv,
-                         device)
+        super().__init__(state_shape=state_shape,
+                         num_actions=num_actions,
+                         lr=lr,
+                         gamma=gamma,
+                         epsilon_start=epsilon_start,
+                         epsilon_end=epsilon_end,
+                         epsilon_decay_steps=epsilon_decay_steps,
+                         batch_size=batch_size,
+                         train_every=train_every,
+                         replay_memory_size=replay_memory_size,
+                         replay_memory_init_size=replay_memory_init_size,
+                         hard_update_target_every=hard_update_target_every,
+                         double=double,
+                         noisy=noisy,
+                         clip=clip,
+                         device=device)
 
         self.double = double
         self.dueling = dueling

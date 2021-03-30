@@ -26,8 +26,6 @@ class NStepDQNAgent(DQNBaseAgent):
         train_every (int) : how often to update the online work
         replay_memory_init_size (int) : minimum number of experiences to start training
         replay_memory_size (int) : max number of experiences to store in memory buffer
-        soft_update (bool) : if update the target network softly or hardly
-        soft_update_target_every (int) : how often to soft update the target network
         hard_update_target_every (int): how often to hard update the target network(copy the param of online network)
         loss_type (str) : which loss to use, ('mse' / 'huber')
         noisy (bool) : True if use NoisyLinear for network False Linear
@@ -51,16 +49,14 @@ class NStepDQNAgent(DQNBaseAgent):
                  train_every=1,
                  replay_memory_size=int(1e5),
                  replay_memory_init_size=1000,
-                 soft_update=False,
-                 soft_update_target_every=10,
                  hard_update_target_every=1000,
-                 loss_type='mse',
+                 loss_type='huber',
                  double=True,
                  dueling=False,
                  noisy=False,
                  use_n_step=False,
                  n_step=3,
-                 clip=False,
+                 clip=True,
                  use_conv=False,
                  device=None):
 
@@ -75,8 +71,6 @@ class NStepDQNAgent(DQNBaseAgent):
                          train_every=train_every,
                          replay_memory_size=replay_memory_size,
                          replay_memory_init_size=replay_memory_init_size,
-                         soft_update=soft_update,
-                         soft_update_target_every=soft_update_target_every,
                          hard_update_target_every=hard_update_target_every,
                          loss_type=loss_type,
                          double=double,
