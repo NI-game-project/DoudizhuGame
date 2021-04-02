@@ -473,42 +473,56 @@ class QRDuelDQN(nn.Module):
         self.value.reset_noise()
 
 
-class FQFDQN(nn.Module):
-    def __init__(self, state_shape, num_actions, quant_num, cosine_num, hidden_size=512, use_conv=False, noisy=False):
+class DRQN(nn.Module):
+    """
+    Recurrent Q network in pytorch
+    parameters:
+        state_shape (list of int): shape of the state
+        num_actions (int) : number of possible actions that an agent can take
+        recurrent_layer_size (int) : size of hidden state of recurrent layer
+        recurrent_layers_num (int) : number of recurrent layers to use
+        mlp_layers (list): list of mlp hidden layer sizes
+        describing the fully connected network from the hidden state to output
+        activation (str): which activation func to use? 'tanh' or 'relu'
+    """
 
-        super(FQFDQN, self).__init__()
+    def __init__(self, state_shape, num_actions,
+                 recurrent_layer_size, recurrent_layers_num,
+                 mlp_layers, activation='relu'):
+        super(DRQN, self).__init__()
 
-        self.use_conv = use_conv
-        self.quant_num = quant_num
-        self.cosine_num = cosine_num
-        self.num_actions = num_actions
-        self.hidden_size = hidden_size
-        self.flatten = Flatten()
+        # initialize lstm layers
+        self.flattened_state_size = reduce(lambda x, y: x * y, state_shape)
+        self.recurrent_layer_size = recurrent_layer_size
+        self.recurrent_layers_num = recurrent_layers_num
+        self.lstm_layers = LSTM(input_size=self.flattened_state_size,
+                                hidden_size=recurrent_layer_size,
+                                num_layers=recurrent_layers_num,
+                                )
 
-        flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
+        layer_dims = [recurrent_layer_size] + mlp_layers + [num_actions]
+        fc_layers = []
 
-        self.fc1 = nn.Linear(flattened_state_shape, self.hidden_size)
-        self.cosine = nn.Linear(self.cosine_num, self.hidden_size)
-        if noisy:
+        for i in range(len(layer_dims) - 2):
+            fc_layers.append(nn.Linear(layer_dims[i], layer_dims[i + 1]))
+            if activation == 'relu':
+                fc_layers.append(nn.ReLU())
+            else:
+                fc_layers.append(nn.Tanh())
 
-            self.fc2 = NoisyLinear(self.hidden_size, self.hidden_size)
-            self.fc3 = NoisyLinear(self.hidden_size, self.num_actions * self.quant_num)
-
-        else:
-            self.fc2 = nn.Linear(self.hidden_size, self.hidden_size)
-            self.fc3 = nn.Linear(self.hidden_size, self.num_actions * self.quant_num)
+        fc_layers.append(nn.Linear(layer_dims[-2], layer_dims[-1]))
+        self.fc_layers = nn.Sequential(*fc_layers)
+        self.init_hidden(1)
 
     def forward(self, state):
-        x = torch.flatten(state, start_dim=1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        dist = self.fc3(x)
+        state = torch.flatten(state, start_dim=1)
+        x, (self.hidden, self.cell) = \
+            self.lstm_layers(state.view(-1, 1, self.flattened_state_size), (self.hidden, self.cell))
 
-        # [batch_size, num_actions, quant_num)
-        dist = dist.view(-1, self.num_actions, self.quant_num)
+        q_values = self.fc_layers(x)
 
-        return dist
+        return q_values
 
-    def reset_noise(self):
-        self.fc2.reset_noise()
-        self.fc3.reset_noise()
+    def init_hidden(self, size):
+        self.hidden = torch.zeros(self.recurrent_layers_num, size, self.recurrent_layer_size)
+        self.cell = torch.zeros(self.recurrent_layers_num, size, self.recurrent_layer_size)

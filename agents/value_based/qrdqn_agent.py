@@ -7,6 +7,7 @@ from utils_global import action_mask
 from agents.common.model import QRDQN, QRDuelDQN
 from agents.common.buffers import BasicBuffer
 from agents.value_based.dqn_base_agent import DQNBaseAgent
+
 """
 An implementation of Quantile Regression DQN Agent.
 Distributional Reinforcement Learning with Quantile Regression, https://arxiv.org/abs/1710.10044
@@ -51,11 +52,13 @@ class QRDQNAgent(DQNBaseAgent):
                  epsilon_start=1.0,
                  epsilon_end=0.05,
                  epsilon_decay_steps=40000,
+                 epsilon_eval=0.001,
                  batch_size=32,
                  train_every=1,
                  replay_memory_size=int(2e5),
                  replay_memory_init_size=1000,
                  hard_update_target_every=1000,
+                 hidden_size=1024,
                  double=True,
                  dueling=False,
                  noisy=False,
@@ -70,6 +73,7 @@ class QRDQNAgent(DQNBaseAgent):
                          epsilon_start=epsilon_start,
                          epsilon_end=epsilon_end,
                          epsilon_decay_steps=epsilon_decay_steps,
+                         epsilon_eval=epsilon_eval,
                          batch_size=batch_size,
                          train_every=train_every,
                          replay_memory_size=replay_memory_size,
@@ -91,18 +95,18 @@ class QRDQNAgent(DQNBaseAgent):
         # initialize q and target networks
         if dueling:
             self.online_net = QRDuelDQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                                        n_quantile=self.n_quantile, use_conv=use_conv,
-                                        noisy=self.noisy).to(self.device)
+                                        n_quantile=self.n_quantile, hidden_size=hidden_size,
+                                        use_conv=use_conv, noisy=self.noisy).to(self.device)
             self.target_net = QRDuelDQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                                        n_quantile=self.n_quantile, use_conv=use_conv,
-                                        noisy=self.noisy).to(self.device)
+                                        n_quantile=self.n_quantile, hidden_size=hidden_size,
+                                        use_conv=use_conv, noisy=self.noisy).to(self.device)
         else:
             self.online_net = QRDQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                                    n_quantile=self.n_quantile, use_conv=use_conv,
-                                    noisy=self.noisy).to(self.device)
+                                    n_quantile=self.n_quantile, hidden_size=hidden_size,
+                                    use_conv=use_conv, noisy=self.noisy).to(self.device)
             self.target_net = QRDQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                                    n_quantile=self.n_quantile, use_conv=use_conv,
-                                    noisy=self.noisy).to(self.device)
+                                    n_quantile=self.n_quantile, hidden_size=hidden_size,
+                                    use_conv=use_conv, noisy=self.noisy).to(self.device)
 
         self.online_net.train()
         self.target_net.train()
@@ -110,7 +114,7 @@ class QRDQNAgent(DQNBaseAgent):
         disable_gradients(self.target_net)
 
         # initialize optimizer(Adam) for online network
-        self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=lr, eps=1e-2/batch_size)
+        self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=lr, eps=1e-2 / batch_size)
 
         # initialize memory buffer
         self.memory_buffer = BasicBuffer(replay_memory_size, batch_size)
@@ -200,10 +204,11 @@ class QRDQNAgent(DQNBaseAgent):
             # Select greedy actions a∗ in next state using the target(online if double) network., a∗=argmaxa′Qθ(s′,a′)
             next_argmax_actions = next_q_values.max(1)[1].detach()
             # next_argmax_action: [batch_size, 1,  n_quantile]
-            next_argmax_actions = next_argmax_actions.unsqueeze(1).unsqueeze(1).expand(self.batch_size, 1, self.n_quantile)
+            next_argmax_actions = next_argmax_actions.unsqueeze(1).unsqueeze(1).expand(self.batch_size, 1,
+                                                                                       self.n_quantile)
             # Use greedy actions to select target value distributions.
             # next_dist: [batch_size, n_quantile]
-            next_dists = next_dist_target .gather(1, next_argmax_actions).squeeze(1)
+            next_dists = next_dist_target.gather(1, next_argmax_actions).squeeze(1)
 
             # Calculate target quantile values.
             # [batch_size, n_quantile]
@@ -251,5 +256,3 @@ class QRDQNAgent(DQNBaseAgent):
         self.current_q_values = dists.mean(1)[0]
 
         return loss.item()
-
-

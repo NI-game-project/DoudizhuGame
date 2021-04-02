@@ -2,9 +2,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from agents.value_based.utils import disable_gradients
+from agents.value_based.utils import calculate_huber_loss, disable_gradients, calculate_quantile_loss_penalties
 from utils_global import action_mask
-from agents.common.model import C51DuelDQN, C51DQN
+from agents.common.model import QRDuelDQN, QRDQN
 from agents.common.buffers import NStepPERBuffer, NStepBuffer, PrioritizedBuffer, BasicBuffer
 from agents.value_based.dqn_base_agent import DQNBaseAgent
 
@@ -12,27 +12,15 @@ from agents.value_based.dqn_base_agent import DQNBaseAgent
 class RainbowAgent(DQNBaseAgent):
     """
     An implementation of rainbow dqn agent
-    with double, dueling, noisy, c21_dqn(categorical/distribution) network, multi-step prioritized replay buffer.
+    with double, dueling, noisy, quantile regression network, multi-step prioritized replay buffer
 
-        Q(s,a) is the expected reward. Z is the full distribution from which Q is generated.
-        Support represents the support of Z distribution (non-zero part of pdf).
-        Z is represented with a fixed number of "atoms", which are pairs of values (x_i, p_i)
-        composed by the discrete positions (x_i) equidistant along its support defined between
-        Vmin-Vmax and the probability mass or "weight" (p_i) for that particular position.
-        As an example, for a given (s,a) pair, we can represent Z(s,a) with 8 atoms as follows:
-                   .        .     .
-                .  |     .  |  .  |
-                |  |  .  |  |  |  |  .
-                |  |  |  |  |  |  |  |
-           Vmin ----------------------- Vmax
 
        Parameters:
         Parameters:
         num_actions (int) : how many possible actions
         state_shape (list) : tensor shape of state
-        num_atoms (int) : the number of buckets for the value function distribution.
-        v_max (float): maximum return predicted by a value distribution.(max_reward of the game)
-        v_min (float): -v_max
+        n_quantile (int) : number of quantiles
+        kappa (float) : smoothing parameter for the Huber loss
         lr (float) : learning rate to use for training online_net
         gamma (float) : discount parameter
         epsilon_start (float) : start value of epsilon
@@ -58,9 +46,8 @@ class RainbowAgent(DQNBaseAgent):
     def __init__(self,
                  state_shape,
                  num_actions,
-                 num_atoms=51,
-                 v_min=-10.,
-                 v_max=10.,
+                 n_quantile=200,
+                 kappa=1.,
                  lr=0.00001,
                  gamma=0.99,
                  epsilon_start=1.0,
@@ -75,11 +62,11 @@ class RainbowAgent(DQNBaseAgent):
                  hidden_size=1024,
                  double=True,
                  dueling=True,
-                 noisy=True,
+                 noisy='noisy',
                  use_n_step=True,
                  n_step=3,
                  per=True,
-                 clip=True,
+                 clip=False,
                  use_conv=False,
                  device=None):
 
@@ -99,38 +86,34 @@ class RainbowAgent(DQNBaseAgent):
                          double=double,
                          noisy=noisy,
                          clip=clip,
+                         use_conv=use_conv,
                          device=device)
 
-        self.double = double
-        self.dueling = dueling
         self.use_n_step = use_n_step
         self.n_step = n_step
         self.per = per
-        self.num_atoms = num_atoms
-        self.v_min = v_min
-        self.v_max = v_max
-
-        # support: [num_atoms]
-        # [-1., -0.96, -0.92, ..., 0.92, 0.96, 1.]
-        self.support = torch.linspace(self.v_min, self.v_max, self.num_atoms)
-        # delta_z: scalar(0.04)
-        self.delta_z = float(self.v_max - self.v_min) / (self.num_atoms - 1)
+        self.n_quantile = n_quantile
+        self.kappa = kappa
+        # Quantile midpoints.
+        # tau(i) = i/N
+        # tau_hat(i) = (tau(i-1) + tau(i))/2
+        self.tau_hat = (torch.arange(self.n_quantile, dtype=torch.float32) + 0.5) / self.n_quantile
 
         # initialize online and target networks
         if dueling:
-            self.online_net = C51DuelDQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                                         num_atoms=self.num_atoms, hidden_size=hidden_size,
-                                         use_conv=use_conv, noisy=self.noisy).to(self.device)
-            self.target_net = C51DuelDQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                                         num_atoms=self.num_atoms, hidden_size=hidden_size,
-                                         use_conv=use_conv, noisy=self.noisy).to(self.device)
+            self.online_net = QRDuelDQN(state_shape=self.state_shape, num_actions=self.num_actions,
+                                        n_quantile=self.n_quantile, hidden_size=hidden_size,
+                                        use_conv=use_conv, noisy=self.noisy).to(self.device)
+            self.target_net = QRDuelDQN(state_shape=self.state_shape, num_actions=self.num_actions,
+                                        n_quantile=self.n_quantile, hidden_size=hidden_size,
+                                        use_conv=use_conv, noisy=self.noisy).to(self.device)
         else:
-            self.online_net = C51DQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                                     num_atoms=self.num_atoms, hidden_size=hidden_size,
-                                     use_conv=use_conv, noisy=self.noisy).to(self.device)
-            self.target_net = C51DQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                                     num_atoms=self.num_atoms, hidden_size=hidden_size,
-                                     use_conv=use_conv, noisy=self.noisy).to(self.device)
+            self.online_net = QRDQN(state_shape=self.state_shape, num_actions=self.num_actions,
+                                    n_quantile=self.n_quantile, hidden_size=hidden_size,
+                                    use_conv=use_conv, noisy=self.noisy).to(self.device)
+            self.target_net = QRDQN(state_shape=self.state_shape, num_actions=self.num_actions,
+                                    n_quantile=self.n_quantile, hidden_size=hidden_size,
+                                    use_conv=use_conv, noisy=self.noisy).to(self.device)
 
         self.online_net.train()
         self.target_net.train()
@@ -138,7 +121,9 @@ class RainbowAgent(DQNBaseAgent):
         disable_gradients(self.target_net)
 
         # initialize optimizer(Adam) for online network
-        self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=lr,) #eps=0.00015
+        self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=lr, eps=1e-2 / batch_size)
+
+        self.softmax = torch.nn.Softmax(dim=-1)
 
         # initialize memory buffer
         if self.n_step:
@@ -150,52 +135,6 @@ class RainbowAgent(DQNBaseAgent):
             self.memory_buffer = PrioritizedBuffer(replay_memory_size, batch_size)
         else:
             self.memory_buffer = BasicBuffer(replay_memory_size, batch_size)
-
-    def projection_distribution(self, next_dist, rewards, dones):
-        """
-        Returns probability distribution for target policy given the visited transitions. Since the
-        Q function is defined as a discrete distribution, the expected returns will most likely
-        fall outside the support of the distribution and we won't be able to compute the KL
-        divergence between the target and online policies for the visited transitions. Therefore, we
-        need to project the resulting distribution into the support defined by the network output
-        definition.
-        """
-
-        # [batch_size, num_atoms]
-        rewards = rewards.unsqueeze(1).expand_as(next_dist)
-        dones = dones.unsqueeze(1).expand_as(next_dist)
-        support = self.support.unsqueeze(0).expand_as(next_dist)
-
-        # Compute projection of the application of the Bellman operator.
-        # Clamp values so they fall within the support of Z values
-        if self.use_n_step:
-            Tz = rewards + (self.gamma ** self.n_step) * (1 - dones) * support
-        else:
-            Tz = rewards + self.gamma * (1 - dones) * support
-
-        Tz = Tz.clamp(min=self.v_min, max=self.v_max)
-
-        # Compute categorical indices for distributing the probability
-        # 1. Find which values of the discrete fixed distribution are the closest lower (l) and
-        #     upper value (u) to the values obtained from Tz (b).
-        b = (Tz - self.v_min) / self.delta_z
-        l = b.floor().long()
-        u = b.ceil().long()
-
-        # 2. Distribute probability of Tz.
-        l[(u > 0) * (l == u)] -= 1  # Handles the case of u = b = l != 0
-        u[(l < (self.num_atoms - 1)) * (l == u)] += 1  # Handles the case of u = b = l = 0
-
-        # [batch_size, num_atoms]
-        offset = torch.linspace(0, (self.batch_size - 1) * self.num_atoms, self.batch_size).long() \
-            .unsqueeze(1).expand(self.batch_size, self.num_atoms)
-
-        proj_dist = torch.zeros(next_dist.size(), dtype=torch.float32)
-        # Distribute probabilities to the closest lower atom in inverse proportion to the distance to the atom.
-        proj_dist.view(-1).index_add_(0, (l + offset).view(-1), (next_dist * (u.float() - b)).view(-1))
-        proj_dist.view(-1).index_add_(0, (u + offset).view(-1), (next_dist * (b - l.float())).view(-1))
-
-        return proj_dist
 
     def predict(self, state):
         """
@@ -214,12 +153,11 @@ class RainbowAgent(DQNBaseAgent):
         legal_actions = state['legal_actions']
 
         with torch.no_grad():
-            # Distribution of the probabilities of θ(s,a) on the support
+            # Distribution of the probabilities of θ(s,a)
             dist = self.online_net(state_obs).cpu().detach()
-            dist = dist * self.support.expand_as(dist)
 
-            # get q_values by summing up over the distribution of each action
-            q_values = dist.sum(2)[0]
+            # get q_values by averaging over the distribution of each action
+            q_values = dist.mean(2)[0]
 
             # Do action mask for q_values. i.e., set q_values of illegal actions to -inf
             probs = action_mask(self.num_actions, q_values, legal_actions)
@@ -256,21 +194,22 @@ class RainbowAgent(DQNBaseAgent):
         self.online_net.train()
         self.target_net.train()
 
-        # Calculate value distributions of current (states, actions).
+        # Calculate quantile values of current states and actions at taus.
         dists = self.online_net(states)
-        actions = actions.unsqueeze(1).unsqueeze(1).expand(self.batch_size, 1, self.num_atoms)
+        actions = actions.unsqueeze(1).unsqueeze(1).expand(self.batch_size, 1, self.n_quantile)
+        # [batch_size, n_quantile]
         dists = dists.gather(1, actions).squeeze(1)
-        # trick for avoiding nans
-        dists.detach().data.clamp_(0.01, 0.99)
+        # [batch_size, n_quantile, 1]
+        dists = dists.unsqueeze(2)
 
+        # Calculate quantile values of next states and actions at tau_hats.
         with torch.no_grad():
-            # Calculate value distributions of next states.
             next_dist_target = self.target_net(next_states)
 
-            # next_dist: [batch_size, num_actions, num_atoms]
+            # next_dist: [batch_size, num_actions, n_quantile]]
             if self.double:
-                # Reset noise of online network to decorrelate between action selection and value distribution calculation.
-                if self.noisy == 'noisy':
+                # Reset noise of online network to decorrelate between action selection and quantile calculation.
+                if self.noisy:
                     self.reset_noise()
                 # use online network to select next argmax action
                 next_dist_online = self.online_net(next_states)
@@ -278,43 +217,61 @@ class RainbowAgent(DQNBaseAgent):
                 # use target network to select next argmax action
                 next_dist_online = next_dist_target
 
-            # get q_values by summing up over the last dim of distribution
-            next_q_values = (next_dist_online * self.support.expand_as(next_dist_online)).sum(2)
+            # get next q values by averaging over last dim of the distribution
+            next_q_values = next_dist_online.mean(2)
 
             # Do action mask for q_values of next_state if not done (i.e., set q_values of illegal actions to -inf)
             for i in range(self.batch_size):
                 next_q_values[i] = action_mask(self.num_actions, next_q_values[i], next_legal_actions[i])
 
-            # Select greedy actions a∗ in next state using the target(online if double) network., a∗=argmaxa′Qθ(s′,a′)
-            next_argmax_actions = next_q_values.max(1)[1]
-            # next_argmax_action: [batch_size, 1, num_atoms]
-            next_argmax_actions = next_argmax_actions.unsqueeze(1).unsqueeze(1).expand(self.batch_size, 1,
-                                                                                       self.num_atoms)
+            # Select greedy actions a∗ in next state using the target(online if double) network. a∗=argmaxa′Qθ(s′,a′)
+            next_argmax_action = next_q_values.max(1)[1].detach()
+            # next_argmax_action: [batch_size, 1,  n_quantile]
+            next_argmax_action = next_argmax_action.unsqueeze(1).unsqueeze(1).expand(self.batch_size, 1,
+                                                                                     self.n_quantile)
             # Use greedy actions to select target value distributions.
-            # next_dist: [batch_size, num_atoms]
-            next_dist = next_dist_target.gather(1, next_argmax_actions).squeeze(1)
+            # next_dist: [batch_size, n_quantile]
+            next_dists = next_dist_target.gather(1, next_argmax_action).squeeze(1)
 
-            # project next value distribution onto the support
-            proj_dists = self.projection_distribution(next_dist, rewards, dones)
-            proj_dists = proj_dists.detach()
+            # Calculate target quantile values.
+            # [batch_size, n_quantile]
+            if self.use_n_step:
+                target_dists = rewards.unsqueeze(1) + (self.gamma ** self.n_step) * (
+                            1 - dones.unsqueeze(1)) * next_dists
+            else:
+                target_dists = rewards.unsqueeze(1) + self.gamma * (1 - dones.unsqueeze(1)) * next_dists
+            # [batch_size, 1, n_quantile]
+            target_dists = target_dists.unsqueeze(1)
 
-        # Cross-entropy loss (minimises KL-distance between online and target probs): DKL(proj_dists || dists)
-        # dists: policy distribution for online network
-        # proj_dists: aligned policy distribution for target network
-        error = -(proj_dists * dists.log()).sum(1)
+        # compute the loss between all pairs(θi, θj) of quantile of predicted and target distribution
+        # [batch_size, n_quantile, n_quantile]
+        td_error = target_dists.detach() - dists
+
+        # Compute quantile penalties
+        quantile_penalties = calculate_quantile_loss_penalties(u=td_error, tau=self.tau_hat)
+        # Compute huber loss element-wisely.
+        # [batch_size, n_quantile, n_quantile]
+        huber_loss = calculate_huber_loss(u=td_error, kappa=self.kappa)
+        # Compute quantile huber loss element-wisely
+        # quantile regression loss penalizes overestimation errors with weight tau and underestimation errors with
+        # weight 1-tau
+        quantile_huber_loss = (quantile_penalties * huber_loss) / self.kappa
+        # Average over target value dimension, sum over tau dimension.
+        quantile_loss = torch.sum(torch.mean(quantile_huber_loss, 2), 1)
 
         if self.per:
+            # priorities = td_error.detach().abs().sum(dim=1).mean(dim=1).numpy()
+            priorities = torch.abs(quantile_loss).detach().numpy()
             # update per_double_dqn priorities
-            priorities = torch.abs(error).detach().numpy()
             self.memory_buffer.update_priorities(indices, priorities)
             # calculate importance-weighted (Prioritized Experience Replay) batch loss
-            loss = (error * is_weights).mean()
+            loss = (quantile_loss * is_weights).mean()
         else:
-            loss = error.mean()
+            loss = quantile_loss.mean()
 
         self.optimizer.zero_grad()
 
-        # Backpropagate importance-weighted (Prioritized Experience Replay) batch loss
+        # Backpropagate importance-weighted (Prioritized Experience Replay) minibatch loss
         loss.backward()
 
         # Clip gradients (normalising by max value of gradient L2 norm)
@@ -330,7 +287,7 @@ class RainbowAgent(DQNBaseAgent):
         self.update_target_net(self.soft_update)
         self.train_time += 1
 
-        self.expected_q_values = (proj_dists * self.support).sum(1)
-        self.current_q_values = (dists * self.support).sum(1)
+        self.expected_q_values = target_dists.mean(2)[0]
+        self.current_q_values = dists.mean(1)[0]
 
         return loss.item()

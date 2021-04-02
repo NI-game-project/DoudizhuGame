@@ -54,6 +54,7 @@ class DQNBaseAgent:
                  soft_update_target_every=10,
                  hard_update_target_every=1000,
                  loss_type='huber',
+                 hidden_size=512,
                  double=True,
                  noisy=False,
                  clip=True,
@@ -90,7 +91,6 @@ class DQNBaseAgent:
         self.clip = clip
         self.clip_norm = 2
         self.clip_value = 0.5
-        self.use_conv = use_conv
 
         # Total time steps and training time steps
         self.total_time = 0
@@ -101,9 +101,9 @@ class DQNBaseAgent:
         # self.target_net = DeepConvNet(state_shape=self.state_shape, action_num=self.num_actions, kernels=64)
 
         self.online_net = DQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                              use_conv=self.use_conv, noisy=self.noisy).to(self.device)
+                              hidden_size=hidden_size, use_conv=use_conv, noisy=self.noisy).to(self.device)
         self.target_net = DQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                              use_conv=self.use_conv, noisy=self.noisy).to(self.device)
+                              hidden_size=hidden_size, use_conv=use_conv, noisy=self.noisy).to(self.device)
 
         self.online_net.train()
         self.target_net.train()

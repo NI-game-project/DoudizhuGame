@@ -43,12 +43,14 @@ class PERDQNAgent(DQNBaseAgent):
                  epsilon_start=1.0,
                  epsilon_end=0.05,
                  epsilon_decay_steps=40000,
+                 epsilon_eval=0.001,
                  batch_size=32,
                  train_every=1,
                  replay_memory_size=int(2e4),
                  replay_memory_init_size=1000,
                  hard_update_target_every=1000,
                  loss_type='huber',
+                 hidden_size=512,
                  double=True,
                  dueling=False,
                  noisy=False,
@@ -63,6 +65,7 @@ class PERDQNAgent(DQNBaseAgent):
                          epsilon_start=epsilon_start,
                          epsilon_end=epsilon_end,
                          epsilon_decay_steps=epsilon_decay_steps,
+                         epsilon_eval=epsilon_eval,
                          batch_size=batch_size,
                          train_every=train_every,
                          replay_memory_size=replay_memory_size,
@@ -78,14 +81,14 @@ class PERDQNAgent(DQNBaseAgent):
         # initialize online and target networks
         if dueling:
             self.online_net = DuelingDQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                                         use_conv=self.use_conv, noisy=self.noisy).to(self.device)
+                                         hidden_size=hidden_size, use_conv=use_conv, noisy=self.noisy).to(self.device)
             self.target_net = DuelingDQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                                         use_conv=self.use_conv, noisy=self.noisy).to(self.device)
+                                         hidden_size=hidden_size, use_conv=use_conv, noisy=self.noisy).to(self.device)
         else:
             self.online_net = DQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                                  use_conv=self.use_conv, noisy=self.noisy).to(self.device)
+                                  hidden_size=hidden_size, use_conv=use_conv, noisy=self.noisy).to(self.device)
             self.target_net = DQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                                  use_conv=self.use_conv, noisy=self.noisy).to(self.device)
+                                  hidden_size=hidden_size, use_conv=use_conv, noisy=self.noisy).to(self.device)
 
         self.online_net.train()
         self.target_net.train()

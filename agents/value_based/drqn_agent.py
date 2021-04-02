@@ -1,10 +1,10 @@
 import numpy as np
-from random import sample
 import torch
 import torch.nn as nn
 
 from utils_global import remove_illegal
-from agents.networks import DRQN
+from agents.common.model import DRQN
+from agents.common.buffers import SequentialMemory
 
 """
 Deep Recurrent Q-Learning agent.
@@ -231,7 +231,6 @@ class DRQNAgent:
         """
         state_dict = dict()
         state_dict['online_net'] = self.q_net.state_dict()
-        state_dict['target_net'] = self.target_net.state_dict()
 
         torch.save(state_dict, filepath)
 
@@ -243,24 +242,4 @@ class DRQNAgent:
         """
         state_dict = torch.load(filepath, map_location=self.device)
         self.q_net.load_state_dict(state_dict['online_net'])
-        self.target_net.load_state_dict(state_dict['target_net'])
 
-
-class SequentialMemory(object):
-    """
-        sequential memory implementation for recurrent q network
-        save a series of transitions to use as training examples for the recurrent network
-    """
-
-    def __init__(self, max_size, batch_size):
-        self.max_size = max_size
-        self.batch_size = batch_size
-        self.memory = []
-
-    def add_seq_transition(self, seq):
-        if len(self.memory) == self.max_size:
-            self.memory.pop(0)
-        self.memory.append(seq)
-
-    def sample(self):
-        return sample(self.memory, self.batch_size)
