@@ -1,14 +1,11 @@
 import numpy as np
 import torch
 
+from agents.value_based.dqn_base_agent import DQNBaseAgent
 from agents.value_based.rainbow_c51 import RainbowAgent
 from agents.common.buffers import ReservoirMemoryBuffer
 from agents.common.model import AveragePolicyNet
 from utils_global import remove_illegal
-
-
-# action saved in sl_buffer: action taken by the agent after removing illegal or predicted by dqn_net??
-# sl_loss: optimizing the log-prob of past actions taken   L = E(-log(ap_net(s,a)))
 
 
 class NFSPAgent:
@@ -20,15 +17,11 @@ class NFSPAgent:
         rl_lr (float) : learning rate to use for training action value net
         batch_size (int) : batch sizes to use when training networks
         sl_memory_size (int) : max number of experiences to store in supervised learning memory buffer
-        epsilon_decay_steps (int) : how often should we decay epsilon value
         eta (float) : anticipatory parameter for NFSP
-        gamma (float) : discount parameter
         device (torch.device) : device to put models on
     """
 
     def __init__(self,
-                 # these are the hyperparameters in nfsp paper
-                 scope,
                  num_actions,
                  state_shape,
                  sl_lr=.00005,
@@ -36,44 +29,35 @@ class NFSPAgent:
                  batch_size=128,
                  train_every=64,
                  sl_memory_init_size=1000,
-                 sl_memory_size=int(2e6),
+                 sl_memory_size=int(1e6),
                  q_train_every=64,
-                 epsilon_decay_steps=int(1e5),
                  eta=.2,
-                 gamma=.99,
                  device=None):
         if device is None:
             self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         else:
             self.device = device
-        self.scope = scope
+
         self.num_actions = num_actions
         self.state_shape = state_shape
-        self.rl_lr = rl_lr
         self.sl_lr = sl_lr
         self.batch_size = batch_size
         self.train_every = train_every
-        self.discount_factor = gamma
         self.sl_memory_init_size = sl_memory_init_size
         self.q_train_every = q_train_every
         self.anticipatory_param = eta
-        self.device = device
         self.use_raw = False
-
-        self.epsilon_decay_steps = epsilon_decay_steps
-        self.epsilons = np.linspace(0.08, 0.0, epsilon_decay_steps)
-        # self.epsilons = np.linspace(1.0, 0.1, epsilon_decay_steps)
 
         # average policy can be modeled as a Deep Q Network and we take softmax after final layer
         self.average_policy = AveragePolicyNet(state_shape=state_shape,
                                                num_actions=num_actions,
-                                               use_conv=True, ).to(self.device)
+                                               use_conv=False).to(self.device)
         self.average_policy.eval()
 
-        # action value and target network are Deep Q Networks
-        self.rl_agent = RainbowAgent(state_shape=self.state_shape,
+        # initialize inner RL agent
+        self.rl_agent = DQNBaseAgent(state_shape=self.state_shape,
                                      num_actions=self.num_actions,
-                                     lr=self.rl_lr,
+                                     lr=rl_lr,
                                      batch_size=64,
                                      train_every=32,
                                      epsilon_start=0.06,
@@ -81,11 +65,6 @@ class NFSPAgent:
                                      )
 
         # initialize optimizers
-        """
-        in the paper: using sgd optim, eta = 0.1.
-        rl_lr = 0.1, sl_lr = 0.005,
-        epsilon decay from 0.06 to 0
-        """
         self.sl_optim = torch.optim.Adam(self.average_policy.parameters(), lr=self.sl_lr)
 
         # initialize memory buffers
@@ -131,10 +110,12 @@ class NFSPAgent:
          """
         with torch.no_grad():
             state_obs = torch.FloatTensor(state['obs']).unsqueeze(0).to(self.device)
-            q_values = self.average_policy(state_obs)[0].cpu().detach().numpy()
-            probs = remove_illegal(q_values, state['legal_actions'])
+            action_probs = self.average_policy(state_obs)[0].cpu().detach().numpy()
+            prediction = np.argmax(action_probs)
+            probs = remove_illegal(action_probs, state['legal_actions'])
             action = np.random.choice(self.num_actions, p=probs)
-            return action, probs
+
+            return action, probs, prediction
 
     def greedy_ap_pick_action(self, state):
         """
@@ -151,6 +132,7 @@ class NFSPAgent:
             q_values = self.average_policy(state_obs)[0].cpu().detach().numpy()
             probs = remove_illegal(q_values, state['legal_actions'])
             action = np.argmax(probs)
+
             return action, probs
 
     def step(self, state):
@@ -183,13 +165,19 @@ class NFSPAgent:
                action (int) : integer representing action id
                probs (np.array) : softmax distribution over the actions
         """
+
+        self.average_policy.eval()
+
         if self.policy == 'average_policy':
-            action, probs = self.ap_pick_action(state)
+            action, probs, predicted_action = self.ap_pick_action(state)
+            self.predictions.append(predicted_action)
         elif self.policy == 'greedy_average_policy':
             action, probs = self.greedy_ap_pick_action(state)
         elif self.policy == 'best_response':
             action, probs = self.rl_agent.eval_step(state)
         self.actions.append(action)
+
+        self.average_policy.train()
 
         return action, probs
 
@@ -213,7 +201,7 @@ class NFSPAgent:
 
         if len(self.sl_buffer.memory) >= self.sl_memory_init_size and self.timestep % self.train_every == 0:
             sl_loss = self.train_sl()
-            print(f'\rAgent {self.scope}, step: {self.timestep}, sl_loss on batch: {sl_loss}', end='')
+            print(f'\rstep: {self.timestep}, sl_loss on batch: {sl_loss}', end='')
             # print(f'step: {self.timestep} average policy updated')
 
     def train_sl(self):
@@ -244,14 +232,14 @@ class NFSPAgent:
         prob = probs.gather(1, actions.unsqueeze(1)).squeeze(1)
         # adding a small eps to torch.log(), avoiding nan in the log_prob
         eps = 1e-7
-        # optimizing the log-prob of past actions taken
+        # sl_loss: optimizing the log-prob of past actions taken: L = E(-log(ap_net(s,a)))
         log_prob = torch.log(prob + eps)
 
         loss = -log_prob.mean()
 
+        self.loss = loss
         loss.backward()
         self.sl_optim.step()
-        self.average_policy.eval()
 
         return loss.item()
 
