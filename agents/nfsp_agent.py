@@ -129,8 +129,9 @@ class NFSPAgent:
         """
         with torch.no_grad():
             state_obs = torch.FloatTensor(state['obs']).unsqueeze(0).to(self.device)
-            q_values = self.average_policy(state_obs)[0].cpu().detach().numpy()
-            probs = remove_illegal(q_values, state['legal_actions'])
+            legal_actions = state['legal_actions']
+            action_probs = self.average_policy(state_obs)[0].cpu().detach().numpy()
+            probs = remove_illegal(action_probs, legal_actions)
             action = np.argmax(probs)
 
             return action, probs
