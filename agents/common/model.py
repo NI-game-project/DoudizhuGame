@@ -473,6 +473,114 @@ class QRDuelDQN(nn.Module):
         self.value.reset_noise()
 
 
+class MoGDQN(nn.Module):
+    """
+    Use a mixture of Gaussians to parametrize the value distribution.
+    3K*|A| output parameters where K is the number of Gaussians, 3 for weight, mean, and variance function of j-th mixture
+
+    """
+    def __init__(self, state_shape, num_actions, num_gaussians, hidden_size=512, use_conv=False, noisy=False):
+        super(MoGDQN, self).__init__()
+
+        self.num_gaussians = num_gaussians
+        self.num_actions = num_actions
+        self.hidden_size = hidden_size
+        self.flatten = Flatten()
+
+        flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
+
+        self.fc1 = nn.Linear(flattened_state_shape, self.hidden_size)
+        if noisy:
+
+            self.fc2 = NoisyLinear(self.hidden_size, self.hidden_size)
+            self.fc3 = NoisyLinear(self.hidden_size, self.num_actions * self.num_gaussians * 3)
+
+        else:
+            self.fc2 = nn.Linear(self.hidden_size, self.hidden_size)
+            self.fc3 = nn.Linear(self.hidden_size, self.num_actions * self.num_gaussians * 3)
+
+    def forward(self, state):
+        x = torch.flatten(state, start_dim=1)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        dist = self.fc3(x)
+
+        # [batch_size, num_actions, num_gaussians)
+        dist = dist.view(-1, 3, self.num_actions, self.num_gaussians)
+
+        # weight function of j-th mixture, 0<pi<1
+        pi = dist[:, 0]
+        pi = F.softmax(pi, dim=-1)
+        # variance function of j-th mixture
+        sigma = torch.exp(dist[:, 1]) + 0.01
+        # mean function of j-th mixture
+        mu = dist[:, 2]
+
+        return pi, mu, sigma
+
+    def reset_noise(self):
+        self.fc2.reset_noise()
+        self.fc3.reset_noise()
+
+
+class MoGDuelDQN(nn.Module):
+
+    def __init__(self, state_shape, num_actions, num_gaussians, hidden_size=512, use_conv=False, noisy=False):
+        super(MoGDuelDQN, self).__init__()
+
+        self.num_gaussians = num_gaussians
+        self.num_actions = num_actions
+        self.hidden_size = hidden_size
+        self.flatten = Flatten()
+
+        flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
+
+        self.fc1 = nn.Linear(flattened_state_shape, self.hidden_size)
+        if noisy:
+
+            self.fc2_adv = NoisyLinear(self.hidden_size, self.hidden_size)
+            self.fc2_val = NoisyLinear(self.hidden_size, self.hidden_size)
+            self.advantage = NoisyLinear(self.hidden_size, self.num_actions * self.num_gaussians * 3)
+            self.value = NoisyLinear(self.hidden_size, self.num_gaussians * 3)
+        else:
+            self.fc2_adv = nn.Linear(self.hidden_size, self.hidden_size)
+            self.fc2_val = nn.Linear(self.hidden_size, self.hidden_size)
+            self.advantage = nn.Linear(self.hidden_size, self.num_actions * self.num_gaussians * 3)
+            self.value = nn.Linear(self.hidden_size, self.num_gaussians * 3)
+
+    def forward(self, state):
+        x = torch.flatten(state, start_dim=1)
+        x = F.relu(self.fc1(x))
+        x_a = F.relu(self.fc2_adv(x))
+        x_v = F.relu(self.fc2_val(x))
+
+        advantage = self.advantage(x_a)
+        value = self.value(x_v)
+        advantage = advantage.view(-1, 3, self.num_actions, self.num_gaussians)
+        value = value.view(-1, 3, 1, self.num_gaussians)
+        adv_average = torch.mean(advantage, dim=1, keepdim=True)
+
+        dist = advantage + value - adv_average
+        dist = dist.view(-1, 3, self.num_actions, self.num_gaussians)
+
+        # weight function of j-th mixture, 0<pi<1
+        pi = dist[:, 0]
+        pi = F.softmax(pi, dim=-1)
+        # variance function of j-th mixture
+        sigma = torch.exp(dist[:, 1]) + 0.01
+        # mean function of j-th mixture
+        mu = dist[:, 2]
+
+        return pi, mu, sigma
+
+    def reset_noise(self):
+
+        self.fc2_val.reset_noise()
+        self.fc2_adv.reset_noise()
+        self.advantage.reset_noise()
+        self.value.reset_noise()
+
+
 class DRQN(nn.Module):
     """
     Recurrent Q network in pytorch
@@ -526,3 +634,46 @@ class DRQN(nn.Module):
     def init_hidden(self, size):
         self.hidden = torch.zeros(self.recurrent_layers_num, size, self.recurrent_layer_size)
         self.cell = torch.zeros(self.recurrent_layers_num, size, self.recurrent_layer_size)
+
+
+class FQFDQN(nn.Module):
+    def __init__(self, state_shape, num_actions, quant_num, cosine_num, hidden_size=512, use_conv=False, noisy=False):
+
+        super(FQFDQN, self).__init__()
+
+        self.use_conv = use_conv
+        self.quant_num = quant_num
+        self.cosine_num = cosine_num
+        self.num_actions = num_actions
+        self.hidden_size = hidden_size
+        self.flatten = Flatten()
+
+        flattened_state_shape = reduce(lambda x, y: x * y, state_shape)
+
+        self.fc1 = nn.Linear(flattened_state_shape, self.hidden_size)
+        self.cosine = nn.Linear(self.cosine_num, self.hidden_size)
+        if noisy:
+
+            self.fc2 = NoisyLinear(self.hidden_size, self.hidden_size)
+            self.fc3 = NoisyLinear(self.hidden_size, self.num_actions * self.quant_num)
+
+        else:
+            self.fc2 = nn.Linear(self.hidden_size, self.hidden_size)
+            self.fc3 = nn.Linear(self.hidden_size, self.num_actions * self.quant_num)
+
+    def forward(self, state):
+        x = torch.flatten(state, start_dim=1)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        dist = self.fc3(x)
+
+        # [batch_size, num_actions, quant_num)
+        dist = dist.view(-1, self.num_actions, self.quant_num)
+
+        return dist
+
+    def reset_noise(self):
+        self.fc2.reset_noise()
+        self.fc3.reset_noise()
+
+

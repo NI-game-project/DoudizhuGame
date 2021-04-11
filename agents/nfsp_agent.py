@@ -24,13 +24,12 @@ class NFSPAgent:
     def __init__(self,
                  num_actions,
                  state_shape,
-                 sl_lr=.00005,
-                 rl_lr=.00005,
+                 sl_lr=.001,
+                 rl_lr=.0005,
                  batch_size=128,
-                 train_every=64,
+                 train_every=4,
                  sl_memory_init_size=1000,
                  sl_memory_size=int(1e6),
-                 q_train_every=64,
                  eta=.2,
                  device=None):
         if device is None:
@@ -44,7 +43,6 @@ class NFSPAgent:
         self.batch_size = batch_size
         self.train_every = train_every
         self.sl_memory_init_size = sl_memory_init_size
-        self.q_train_every = q_train_every
         self.anticipatory_param = eta
         self.use_raw = False
 
@@ -59,9 +57,10 @@ class NFSPAgent:
                                      num_actions=self.num_actions,
                                      lr=rl_lr,
                                      batch_size=64,
-                                     train_every=32,
+                                     train_every=4,
                                      epsilon_start=0.06,
                                      epsilon_end=0,
+                                     epsilon_decay_steps=int(1e5),
                                      )
 
         # initialize optimizers
@@ -73,9 +72,8 @@ class NFSPAgent:
         # current policy
         self.policy = None
 
-        self.softmax = torch.nn.Softmax(dim=1)
-
-        self.timestep = 0
+        self.total_step = 0
+        self.train_step = 0
 
         # for plotting
         self.loss = 0
@@ -108,11 +106,13 @@ class NFSPAgent:
          Output:
              action (int) : integer representing action id
          """
+
         with torch.no_grad():
             state_obs = torch.FloatTensor(state['obs']).unsqueeze(0).to(self.device)
+            legal_actions = state['legal_actions']
             action_probs = self.average_policy(state_obs)[0].cpu().detach().numpy()
             prediction = np.argmax(action_probs)
-            probs = remove_illegal(action_probs, state['legal_actions'])
+            probs = remove_illegal(action_probs, legal_actions)
             action = np.random.choice(self.num_actions, p=probs)
 
             return action, probs, prediction
@@ -193,15 +193,15 @@ class NFSPAgent:
 
         state, action, reward, next_state, done = transition
         self.rl_agent.add_transition(transition)
-        self.timestep += 1
+        self.total_step += 1
 
         if self.policy == 'best_response':
             # Store (state, action) to Reservoir Buffer for Supervised Learning
             self.sl_buffer.add_sa(state['obs'], action)
 
-        if len(self.sl_buffer.memory) >= self.sl_memory_init_size and self.timestep % self.train_every == 0:
+        if len(self.sl_buffer.memory) >= self.sl_memory_init_size and self.total_step % self.train_every == 0:
             sl_loss = self.train_sl()
-            print(f'\rstep: {self.timestep}, sl_loss on batch: {sl_loss}', end='')
+            print(f'\rstep: {self.total_step}, sl_loss on batch: {sl_loss}', end='')
             # print(f'step: {self.timestep} average policy updated')
 
     def train_sl(self):
@@ -221,12 +221,10 @@ class NFSPAgent:
         self.average_policy.train()
         self.sl_optim.zero_grad()
 
-        # [batch, state_shape(450)]
         states = torch.FloatTensor(states).to(self.device)
-        # [batch, 1]
         actions = torch.LongTensor(actions).to(self.device)
 
-        # [batch, action_num(309)]
+        # [batch, action_num]
         probs = self.average_policy(states)
         # [batch, 1]
         prob = probs.gather(1, actions.unsqueeze(1)).squeeze(1)
@@ -237,9 +235,11 @@ class NFSPAgent:
 
         loss = -log_prob.mean()
 
-        self.loss = loss
+        self.loss = loss.item()
         loss.backward()
         self.sl_optim.step()
+
+        self.train_step += 1
 
         return loss.item()
 

@@ -12,7 +12,7 @@ from agents.value_based.dqn_base_agent import DQNBaseAgent
 class RainbowAgent(DQNBaseAgent):
     """
     An implementation of rainbow dqn agent
-    with double, dueling, noisy, c21_dqn(categorical/distribution) network, multi-step prioritized replay buffer.
+    with double, dueling, noisy, categorical/distribution network, multi-step prioritized replay buffer.
 
         Q(s,a) is the expected reward. Z is the full distribution from which Q is generated.
         Support represents the support of Z distribution (non-zero part of pdf).
@@ -138,7 +138,7 @@ class RainbowAgent(DQNBaseAgent):
         disable_gradients(self.target_net)
 
         # initialize optimizer(Adam) for online network
-        self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=lr,) #eps=0.00015
+        self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=lr)#, eps=1e-2/batch_size)
 
         # initialize memory buffer
         if self.n_step:
@@ -328,7 +328,7 @@ class RainbowAgent(DQNBaseAgent):
 
         # soft/hard update the parameters of the target network
         self.update_target_net(self.soft_update)
-        self.train_time += 1
+        self.train_step += 1
 
         self.expected_q_values = (proj_dists * self.support).sum(1)
         self.current_q_values = (dists * self.support).sum(1)

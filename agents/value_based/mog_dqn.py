@@ -2,27 +2,26 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from agents.value_based.utils import calculate_huber_loss, disable_gradients, calculate_quantile_loss_penalties
+from agents.value_based.utils import disable_gradients, gaussian_fn
 from utils_global import action_mask
-from agents.common.model import QRDQN, QRDuelDQN
+from agents.common.model import MoGDQN, MoGDuelDQN
 from agents.common.buffers import BasicBuffer
 from agents.value_based.dqn_base_agent import DQNBaseAgent
 
 """
-An implementation of Quantile Regression DQN Agent.
-Distributional Reinforcement Learning with Quantile Regression, https://arxiv.org/abs/1710.10044
+An implementation of MoG DQN Agent.
+Distributional Deep Reinforcement Learning with a Mixture of Gaussians, https://arxiv.org/pdf/1707.06887.pdf 
 """
 
 
-class QRDQNAgent(DQNBaseAgent):
+class MoGDQNAgent(DQNBaseAgent):
     """
 
        Parameters:
         Parameters:
         num_actions (int) : how many possible actions
         state_shape (list) : tensor shape of state
-        n_quantile (int) : number of quantiles
-        kappa (float) : smoothing parameter for the Huber loss
+        num_gaussians (int) : number of Gaussian distributions
         lr (float) : learning rate to use for training online_net
         gamma (float) : discount parameter
         epsilon_start (float) : start value of epsilon
@@ -45,8 +44,7 @@ class QRDQNAgent(DQNBaseAgent):
     def __init__(self,
                  state_shape,
                  num_actions,
-                 n_quantile=200,
-                 kappa=1.,
+                 num_gaussians=5,
                  lr=0.00001,
                  gamma=0.99,
                  epsilon_start=1.0,
@@ -58,8 +56,8 @@ class QRDQNAgent(DQNBaseAgent):
                  replay_memory_size=int(2e5),
                  replay_memory_init_size=1000,
                  hard_update_target_every=1000,
-                 hidden_size=1024,
-                 double=True,
+                 hidden_size=512,
+                 double=False,
                  dueling=False,
                  noisy=False,
                  clip=True,
@@ -85,28 +83,23 @@ class QRDQNAgent(DQNBaseAgent):
                          use_conv=use_conv,
                          device=device)
 
-        self.n_quantile = n_quantile
-        self.kappa = kappa
-        # Quantile midpoints.
-        # tau(i) = i/N
-        # tau_hat(i) = (tau(i-1) + tau(i))/2
-        self.tau_hat = (torch.arange(self.n_quantile, dtype=torch.float32) + 0.5) / self.n_quantile
+        self.num_gaussians = num_gaussians
 
         # initialize q and target networks
         if dueling:
-            self.online_net = QRDuelDQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                                        n_quantile=self.n_quantile, hidden_size=hidden_size,
-                                        use_conv=use_conv, noisy=self.noisy).to(self.device)
-            self.target_net = QRDuelDQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                                        n_quantile=self.n_quantile, hidden_size=hidden_size,
-                                        use_conv=use_conv, noisy=self.noisy).to(self.device)
+            self.online_net = MoGDuelDQN(state_shape=self.state_shape, num_actions=self.num_actions,
+                                         num_gaussians=self.num_gaussians, hidden_size=hidden_size,
+                                         use_conv=use_conv, noisy=self.noisy)
+            self.target_net = MoGDuelDQN(state_shape=self.state_shape, num_actions=self.num_actions,
+                                         num_gaussians=self.num_gaussians, hidden_size=hidden_size,
+                                         use_conv=use_conv, noisy=self.noisy).to(self.device)
         else:
-            self.online_net = QRDQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                                    n_quantile=self.n_quantile, hidden_size=hidden_size,
-                                    use_conv=use_conv, noisy=self.noisy).to(self.device)
-            self.target_net = QRDQN(state_shape=self.state_shape, num_actions=self.num_actions,
-                                    n_quantile=self.n_quantile, hidden_size=hidden_size,
-                                    use_conv=use_conv, noisy=self.noisy).to(self.device)
+            self.online_net = MoGDQN(state_shape=self.state_shape, num_actions=self.num_actions,
+                                     num_gaussians=self.num_gaussians, hidden_size=hidden_size,
+                                     use_conv=use_conv, noisy=self.noisy)
+            self.target_net = MoGDQN(state_shape=self.state_shape, num_actions=self.num_actions,
+                                     num_gaussians=self.num_gaussians, hidden_size=hidden_size,
+                                     use_conv=use_conv, noisy=self.noisy).to(self.device)
 
         self.online_net.train()
         self.target_net.train()
@@ -114,7 +107,7 @@ class QRDQNAgent(DQNBaseAgent):
         disable_gradients(self.target_net)
 
         # initialize optimizer(Adam) for online network
-        self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=lr, eps=1e-2 / batch_size)
+        self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=lr)#, eps=1e-2 / batch_size)
 
         # initialize memory buffer
         self.memory_buffer = BasicBuffer(replay_memory_size, batch_size)
@@ -136,12 +129,14 @@ class QRDQNAgent(DQNBaseAgent):
         legal_actions = state['legal_actions']
 
         with torch.no_grad():
-            # Distribution of the probabilities of θ(s,a)
-            dist = self.online_net(state_obs).cpu().detach()
+            # weight, mean, variance of the distribution of θ(s,a)
+            pi, mu, sigma = self.online_net(state_obs)
+            pi.detach()
+            mu.detach()
+            sigma.detach()
 
-            # get q_values by averaging over the distribution of each action
-            q_values = dist.mean(2)[0]
-
+            # get q_values: the expected value of the value dist i.e., the mixture weighted sum of Gaussian means
+            q_values = (pi * mu).sum(-1)[0]
             # Do action mask for q_values. i.e., set q_values of illegal actions to -inf
             probs = action_mask(self.num_actions, q_values, legal_actions)
             max_action = np.argmax(probs.numpy())
@@ -171,31 +166,31 @@ class QRDQNAgent(DQNBaseAgent):
         self.online_net.train()
         self.target_net.train()
 
-        # Calculate quantile values of current states and actions at taus.
-        dists = self.online_net(states)
-        actions = actions.unsqueeze(1).unsqueeze(1).expand(self.batch_size, 1, self.n_quantile)
-        # [batch_size, n_quantile]
-        dists = dists.gather(1, actions).squeeze(1)
-        # [batch_size, n_quantile, 1]
-        dists = dists.unsqueeze(2)
+        # pi, mu, sigma: [batch_size, num_actions, num_gaussians]
+        pi, mu, sigma = self.online_net(states)
+        # actions: [batch_size, 1, num_gaussians]
+        actions = actions.unsqueeze(1).unsqueeze(-1).repeat([1, 1, self.num_gaussians])
+        # [batch_size, num_gaussians]
+        pi = pi.gather(1, actions).squeeze()
+        mu = mu.gather(1, actions).squeeze()
+        sigma = sigma.gather(1, actions).squeeze()
 
-        # Calculate quantile values of next states and actions at tau_hats.
+        # Calculate gaussian parameters of next states and actions.
         with torch.no_grad():
-            next_dist_target = self.target_net(next_states)
+            next_pi_target, next_mu_target, next_sigma_target = self.target_net(next_states)
 
-            # next_dist: [batch_size, num_actions, n_quantile]
             if self.double:
                 # reset the noise of online network to decorrelate between action selection and quantile calculation.
                 if self.noisy == 'noisy':
                     self.reset_noise()
                 # use online network to select next argmax action
-                next_dist_online = self.online_net(next_states)
+                next_pi_online, next_mu_online, next_sigma_online = self.online_net(next_states)
             else:
                 # use target network to select next argmax action
-                next_dist_online = next_dist_target
+                next_pi_online, next_mu_online, next_sigma_online = next_pi_target, next_mu_target, next_sigma_target
 
-            # get next q values by averaging over last dim of the distribution
-            next_q_values = next_dist_online.mean(2)
+            # get next q values by the calculating the mixture weighted sum of Gaussian means
+            next_q_values = (next_pi_online * next_mu_online).sum(-1)
 
             # Do action mask for q_values of next_state if not done (i.e., set q_values of illegal actions to -inf)
             for i in range(self.batch_size):
@@ -203,40 +198,54 @@ class QRDQNAgent(DQNBaseAgent):
 
             # Select greedy actions a∗ in next state using the target(online if double) network., a∗=argmaxa′Qθ(s′,a′)
             next_argmax_actions = next_q_values.max(1)[1].detach()
-            # next_argmax_action: [batch_size, 1,  n_quantile]
-            next_argmax_actions = next_argmax_actions.unsqueeze(1).unsqueeze(1).expand(self.batch_size, 1,
-                                                                                       self.n_quantile)
-            # Use greedy actions to select target value distributions.
-            # next_dist: [batch_size, n_quantile]
-            next_dists = next_dist_target.gather(1, next_argmax_actions).squeeze(1)
+            # next_argmax_actions: [batch_size, 1, num_gaussians]
+            next_argmax_actions = next_argmax_actions.unsqueeze(1).unsqueeze(-1).repeat([1, 1, self.num_gaussians])
 
-            # Calculate target quantile values.
-            # [batch_size, n_quantile]
-            target_dists = rewards.unsqueeze(1) + self.gamma * (1 - dones.unsqueeze(1)) * next_dists
-            # [batch_size, 1, n_quantile]
-            target_dists = target_dists.unsqueeze(1)
+            # Use greedy actions to select target gaussian parameters.
+            next_pi = next_pi_target.gather(1, next_argmax_actions).squeeze()
+            next_mu = next_mu_target.gather(1, next_argmax_actions).squeeze()
+            next_sigma = next_sigma_target.gather(1, next_argmax_actions).squeeze()
 
-        # compute the loss between all pairs(θi, θj) of quantile of predicted and target distribution
-        # [batch_size, n_quantile, n_quantile]
-        td_error = target_dists.detach() - dists
+            # mean is shifted as mu -> gamma*mu + r
+            next_mu = self.gamma * next_mu * (1 - dones.unsqueeze(-1)) + rewards.unsqueeze(-1)
+            # variance is shifted as sigma**2 -> (gamma*sigma)**2
+            next_sigma = self.gamma * self.gamma * next_sigma
+            next_pi = next_pi.detach()
+            next_mu = next_mu.detach()
+            next_sigma = next_sigma.detach()
 
-        # Compute quantile penalties
-        quantile_penalties = calculate_quantile_loss_penalties(u=td_error, tau=self.tau_hat)
-        # Compute huber loss element-wisely.
-        # [batch_size, n_quantile, n_quantile]
-        huber_loss = calculate_huber_loss(u=td_error, kappa=self.kappa)
-        # Compute quantile huber loss element-wisely
-        # quantile regression loss penalizes overestimation errors with weight tau and underestimation errors with
-        # weight 1-tau
-        quantile_huber_loss = (quantile_penalties * huber_loss) / self.kappa
-        # Average over target value dimension, sum over tau dimension.
-        # quantile_loss = quantile_huber_loss.sum(1).mean(1)
-        quantile_loss = torch.sum(torch.mean(quantile_huber_loss, 2), 1)
+        self.expected_q_values = (next_pi * next_mu).sum(-1)
+        self.current_q_values = (pi * mu).sum(-1)
+
+        # compute the JTD loss to measure the distance between two mixtures of Gaussians.
+        pi_i = pi.unsqueeze(-1).repeat([1, 1, self.num_gaussians])
+        pi_j = pi.unsqueeze(-2).repeat([1, self.num_gaussians, 1])
+
+        mu_i = mu.unsqueeze(-1).repeat([1, 1, self.num_gaussians])
+        mu_j = mu.unsqueeze(-2).repeat([1, self.num_gaussians, 1])
+
+        sigma_i = sigma.unsqueeze(-1).repeat([1, 1, self.num_gaussians])
+        sigma_j = sigma.unsqueeze(-2).repeat([1, self.num_gaussians, 1])
+
+        next_pi_i = next_pi.unsqueeze(-1).repeat([1, 1, self.num_gaussians])
+        next_pi_j = next_pi.unsqueeze(-2).repeat([1, self.num_gaussians, 1])
+
+        next_mu_i = next_mu.unsqueeze(-1).repeat([1, 1, self.num_gaussians])
+        next_mu_j = next_mu.unsqueeze(-2).repeat([1, self.num_gaussians, 1])
+
+        next_sigma_i = next_sigma.unsqueeze(-1).repeat([1, 1, self.num_gaussians])
+        next_sigma_j = next_sigma.unsqueeze(-2).repeat([1, self.num_gaussians, 1])
+
+        # equation(3) from the paper
+        jtd_loss = (pi_i * pi_j * gaussian_fn(mu_j, sigma_i + sigma_j, mu_i)).sum(-1).sum(-1) + \
+                   (next_pi_i * next_pi_j * gaussian_fn(next_mu_j, next_sigma_i + next_sigma_j, next_mu_i)).sum(-1).sum(
+                       -1) - \
+                   2 * (pi_i * next_pi_j * gaussian_fn(next_mu_j, sigma_i + next_sigma_j, mu_i)).sum(-1).sum(-1)
 
         # Average loss over the batch
-        loss = quantile_loss.mean()
-        self.optimizer.zero_grad()
+        loss = jtd_loss.mean()
 
+        self.optimizer.zero_grad()
         loss.backward()
 
         # Clip gradients (normalising by max value of gradient L2 norm)
@@ -251,8 +260,5 @@ class QRDQNAgent(DQNBaseAgent):
         # soft/hard update the parameters of the target network
         self.update_target_net(self.soft_update)
         self.train_step += 1
-
-        self.expected_q_values = target_dists.mean(2)[0]
-        self.current_q_values = dists.mean(1)[0]
 
         return loss.item()

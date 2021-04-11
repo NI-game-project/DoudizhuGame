@@ -93,8 +93,8 @@ class DQNBaseAgent:
         self.clip_value = 0.5
 
         # Total time steps and training time steps
-        self.total_time = 0
-        self.train_time = 0
+        self.total_step = 0
+        self.train_step = 0
 
         # initialize online and target networks
         # self.online_net = DeepConvNet(state_shape=self.state_shape, action_num=self.num_actions, kernels=64)
@@ -176,7 +176,7 @@ class DQNBaseAgent:
             self.epsilon = 0
             self.reset_noise()
         else:
-            self.epsilon = self.epsilons[min(self.total_time, self.epsilon_decay_steps - 1)]
+            self.epsilon = self.epsilons[min(self.total_step, self.epsilon_decay_steps - 1)]
 
         legal_actions = state['legal_actions']
         max_action = self.predict(state)[1]
@@ -217,7 +217,7 @@ class DQNBaseAgent:
             else:
                 action = max_action
 
-        self.actions.append(max_action)
+        self.actions.append(action)
         self.predictions.append(predicted_action)
 
         self.train_mode()
@@ -239,11 +239,11 @@ class DQNBaseAgent:
         self.memory_buffer.save(state['obs'], state['legal_actions'], action, reward,
                                 next_state['obs'], next_state['legal_actions'], done)
 
-        self.total_time += 1
+        self.total_step += 1
 
         # once we have enough samples, get a sample from stored memory to train the network
-        if self.total_time >= self.replay_memory_init_size and \
-                self.total_time % self.train_every == 0:
+        if self.total_step >= self.replay_memory_init_size and \
+                self.total_step % self.train_every == 0:
 
             self.train_mode()
             if self.noisy:
@@ -253,7 +253,7 @@ class DQNBaseAgent:
                 self.target_net.reset_noise()
 
             batch_loss = self.train()
-            print(f'\rstep: {self.total_time}, loss on batch: {batch_loss}', end='')
+            print(f'\rstep: {self.total_step}, loss on batch: {batch_loss}', end='')
 
     def train(self):
         """
@@ -316,7 +316,7 @@ class DQNBaseAgent:
 
         # soft/hard update the parameters of the target network and increase the training time
         self.update_target_net(self.soft_update)
-        self.train_time += 1
+        self.train_step += 1
 
         self.expected_q_values = expected_q_values
         self.current_q_values = q_values
@@ -328,16 +328,16 @@ class DQNBaseAgent:
 
         if is_soft:
             # target_weights = target_weights * (1-tau) + online_weights * tau,(0<tau<1)
-            if self.train_time > 0 and self.train_time % self.soft_update_every == 0:
+            if self.train_step > 0 and self.train_step % self.soft_update_every == 0:
                 for target_param, local_param in zip(self.target_net.parameters(), self.online_net.parameters()):
                     target_param.data.copy_(self.tau * local_param.data + (1 - self.tau) * target_param.data)
-                # print(f'target parameters soft_updated on step {self.train_time}')
+                # print(f'target parameters soft_updated on step {self.train_step}')
 
         else:
             # copy the parameters of online network to target network
-            if self.train_time > 0 and self.train_time % self.hard_update_every == 0:
+            if self.train_step > 0 and self.train_step % self.hard_update_every == 0:
                 self.target_net.load_state_dict(self.online_net.state_dict())
-                # print(f'target parameters hard_updated on step {self.train_time}')
+                # print(f'target parameters hard_updated on step {self.train_step}')
 
     def reset_noise(self):
         """Resets noisy weights in all linear layers (of online net only) """

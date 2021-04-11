@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 
 def disable_gradients(network):
@@ -36,3 +37,7 @@ def calculate_huber_loss(u, kappa=1.):
         # if |u|<=k: Lku = 1/2(u**2), else: Lku = k(|u|-1/2k)
         huber_loss = torch.where(u.abs() <= kappa, 0.5 * u.pow(2), kappa * (u.abs() - 0.5 * kappa))
     return huber_loss
+
+
+def gaussian_fn(mu, sigma, x):
+    return (1. / torch.sqrt(2 * np.pi * sigma)) * (-(x - mu).pow(2) / (2 * sigma)).exp()

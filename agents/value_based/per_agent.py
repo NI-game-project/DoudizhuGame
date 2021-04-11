@@ -193,7 +193,7 @@ class PERDQNAgent(DQNBaseAgent):
 
         # soft/hard update the parameters of the target network and increase the training time
         self.update_target_net(self.soft_update)
-        self.train_time += 1
+        self.train_step += 1
 
         self.current_q_values = q_values
         self.expected_q_values = expected_q_values
