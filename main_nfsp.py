@@ -10,18 +10,17 @@ from utils_global import tournament
 from agents.non_rl.rule_based_agent import DouDizhuRuleAgentV1 as RuleAgent
 from agents.nfsp_agent import NFSPAgent
 
-which_env = '7c'
 which_agent = 'nfsp'
 eval_every = 1000
 eval_num = 500
 episode_num = 50_000
 
-save_dir_landlord = f'./experiments/{which_env}/{which_agent}/landlord/'
-save_dir_peasant = f'./experiments/{which_env}/{which_agent}/peasant/'
+save_dir_landlord = f'./experiments/{which_agent}/landlord/'
+save_dir_peasant = f'./experiments/{which_agent}/peasant/'
 landlord_logger = Logger(save_dir_landlord)
 peasant_logger = Logger(save_dir_peasant)
 
-best_result_ll, best_result_p = 0., 0.
+save_every = 1000
 
 # Make environments to train and evaluate models
 config = {
@@ -35,7 +34,7 @@ config = {
     'single_agent_mode': False,
     'active_player': None,
 }
-state_shape = [7, 4, 15]
+state_shape = [9, 4, 15]
 env_type = 'cooperation'
 train_env = Env(config, state_shape=state_shape, type=env_type)
 eval_env_landlord = Env(config, state_shape=state_shape, type=env_type)
@@ -91,11 +90,6 @@ for episode in range(episode_num):
                                         agents[0].rl_agent.current_q_values, agents[0].rl_agent.expected_q_values)
 
         print(datetime.now().strftime("\n%H:%M:%S"))
-        print(f'\nepisode: {episode}, landlord result: {result_ll}, {agents[0].policy}')
-
-        if result_ll[0] > best_result_ll:
-            best_result_ll = result_ll[0]
-            agents[0].save_state_dict(os.path.join(save_dir_landlord, f'{which_agent}_landlord_best.pt'))
 
         # evaluating peasants against rule_based agent
         result_p, states_p = tournament(eval_env_peasant, eval_num, agents[1])
@@ -104,12 +98,14 @@ for episode in range(episode_num):
                                        agents[1].rl_agent.current_q_values, agents[1].rl_agent.expected_q_values)
 
         print(datetime.now().strftime("\n%H:%M:%S"))
-        print(f'\nepisode: {episode}, peasant result: {result_p}, {agents[1].policy}, {agents[2].policy}')
+        print(f'\nepisode: {episode}, peasant result: {result_p}')
 
-        if result_p[1] > best_result_p:
-            best_result_p = result_p[1]
-            agents[1].save_state_dict(os.path.join(save_dir_peasant, f'{which_agent}_downpeasant_best.pt'))
-            agents[2].save_state_dict(os.path.join(save_dir_peasant, f'{which_agent}_uppeasant_best.pt'))
+        if episode % eval_every == 0:
+            agents[0].save_state_dict(os.path.join(save_dir_peasant, f'{which_agent}_landlord_ckpt.pt'))
+            agents[1].save_state_dict(os.path.join(save_dir_peasant, f'{which_agent}_downpeasant_ckpt.pt'))
+            agents[2].save_state_dict(os.path.join(save_dir_peasant, f'{which_agent}_uppeasant_ckpt.pt'))
+            now = datetime.now().strftime("%H:%M:%S")
+            print(f'\nckpt save for ep:{episode} at {now}')
 
 end_time = datetime.now().strftime("%H:%M:%S")
 print("End Time =", end_time)
@@ -117,8 +113,6 @@ stop = timeit.default_timer()
 print(f'Training time: {((stop - start) / 3600):.2f} hrs '
       f'for landlord: {agents[0].train_step} steps'
       f'for peasant: {agents[1].train_step} steps')
-print(f'peasant_best_result: {best_result_p}')
-print(f'landlord_best_result: {best_result_ll}')
 
 # Close files in the logger and plot the learning curve
 landlord_logger.close_files()

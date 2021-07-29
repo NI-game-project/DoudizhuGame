@@ -274,7 +274,7 @@ class C51DuelDQN(nn.Module):
 
 
 class DeepConvNet(nn.Module):
-    def __init__(self, state_shape, action_num, kernels):
+    def __init__(self, state_shape, num_actions, kernels):
 
         super(DeepConvNet, self).__init__()
         self.conv1 = nn.Conv2d(state_shape[0], kernels, (1, 1), (4, 1))
@@ -285,8 +285,8 @@ class DeepConvNet(nn.Module):
         self.conv_straight = nn.Conv2d(state_shape[0], kernels, (1, 15), 1)
         self.pool = nn.MaxPool2d((4, 1))
         self.drop = nn.Dropout(0.2)
-        self.fc1 = nn.Linear(kernels * (4 + 15), 512)
-        self.fc2 = nn.Linear(512, action_num)
+        self.fc1 = NoisyLinear(kernels * (4 + 15), 512)
+        self.fc2 = NoisyLinear(512, num_actions)
 
     def forward(self, state):
         # 64 * 4 * 15
@@ -305,6 +305,10 @@ class DeepConvNet(nn.Module):
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
+
+    def reset_noise(self):
+        self.fc1.reset_noise()
+        self.fc2.reset_noise()
 
 
 class AveragePolicyNet(nn.Module):

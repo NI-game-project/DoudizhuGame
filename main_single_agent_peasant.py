@@ -14,22 +14,21 @@ from agents.non_rl.rule_based_agent import DouDizhuRuleAgentV1 as RuleAgent
 
 ### rl_agents for training ###
 ### uncomment these lines to import different Agent for training
-#from agents.value_based.nstep_agent import NStepDQNAgent as RLAgent
-#from agents.value_based.c51_agent import C51DQNAgent as RLAgent
+#from agents.value_based.n_step_dqn import NStepDQNAgent as RLAgent
 #from agents.value_based.per_agent import PERDQNAgent as RLAgent
-from agents.value_based.rainbow_c51 import RainbowAgent as RLAgent
+#from agents.value_based.rainbow_c51 import RainbowAgent as RLAgent
+#from agents.value_based.rainbow_qr import RainbowAgent as RLAgent
+from agents.value_based.rainbow_mog import RainbowAgent as RLAgent
 
-
-which_run = '1'
-which_agent = 'rainbow'
+which_agent = 'rainbow_mog'
 eval_every = 500
 eval_num = 1000
 episode_num = 100_000
 
-save_dir = f'./experiments/{which_run}/{which_agent}/'
+save_dir = f'./experiments/{which_agent}/'
 logger = Logger(save_dir)
 
-best_result = 0
+save_every = 2000
 
 # Make environments to train and evaluate models
 config = {
@@ -43,9 +42,10 @@ config = {
     'single_agent_mode': False,
     'active_player': None,
 }
-state_shape = [5, 4, 15]
-env = Env(config, state_shape=state_shape)
-eval_env = Env(config, state_shape=state_shape)
+state_shape = [9, 4, 15]
+env_type = 'cooperation'
+env = Env(config, state_shape=state_shape, type=env_type)
+eval_env = Env(config, state_shape=state_shape, type=env_type)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -55,24 +55,15 @@ rule_agent = RuleAgent(action_num=eval_env.action_num)
 rand_agent = RandomAgent(action_num=env.action_num)
 
 # initialize rl_agents
-agent = RLAgent(num_actions=env.action_num,
-                state_shape=env.state_shape,
-                lr=.00001,
-                gamma=0.97,
-                batch_size=64,
-                epsilon_start=1.0,
-                epsilon_end=0.05,
-                epsilon_decay_steps=80000,
-                soft_update=False,
-                train_every=1,
-                hard_update_target_every=1000,
-                replay_memory_init_size=1000,
-                replay_memory_size=int(2e5),
-                clip=True,
-                )
-env.set_agents([agent, rule_agent, rule_agent])
-eval_env.set_agents([agent, rule_agent, rule_agent])
-print(agent.online_net)
+agent_p1 = RLAgent(num_actions=env.action_num,
+                   state_shape=env.state_shape,
+                   )
+agent_p2 = RLAgent(num_actions=env.action_num,
+                   state_shape=env.state_shape,
+                   )
+env.set_agents([rule_agent, agent_p1, agent_p1])
+eval_env.set_agents([rule_agent, agent_p1, agent_p2])
+print(agent_p1.online_net)
 
 start_time = datetime.now().strftime("%H:%M:%S")
 print("Start Time =", start_time)
@@ -83,36 +74,40 @@ for episode in range(episode_num + 1):
     trajectories, _ = env.run(is_training=True)
     # train the agent against rule_based agent
     # set the agent's online network to training mode
-    agent.train_mode()
+    agent_p1.train_mode()
+    agent_p2.train_mode()
 
-    for trajectory in trajectories[0]:
-        agent.add_transition(trajectory)
+    for trajectory in trajectories[1]:
+        agent_p1.add_transition(trajectory)
+    for trajectory in trajectories[2]:
+        agent_p2.add_transition(trajectory)
 
     # evaluate against random agent
     if episode % eval_every == 0:
-
+        print(datetime.now().strftime("%H:%M:%S"))
         # Set agent's online network to evaluation mode
-        agent.eval_mode()
-        result, states = tournament(eval_env, eval_num, agent)
-        logger.log_performance(episode, result[0], agent.loss, states[0][-1][0]['raw_obs'],
-                               agent.actions, agent.predictions, agent.q_values,
-                               agent.current_q_values, agent.expected_q_values)
+        agent_p1.eval_mode()
+        agent_p2.eval_mode()
+        result, states = tournament(eval_env, eval_num, agent_p1)
+        logger.log_performance(episode, result[1], agent_p1.loss, states[1][-1][0]['raw_obs'])
 
-        print(f'\nepisode: {episode}, result: {result}, 'f'epsilon: {agent.epsilon}, ')
+        print(f'\nepisode: {episode}, result: {result}')
 
-        if result[0] > best_result:
-            best_result = result[0]
-            agent.save_state_dict(os.path.join(save_dir, f'{which_agent}_agent_landlord_best.pt'))
+    if episode % save_every == 0:
+        agent_p1.save_state_dict(os.path.join(save_dir, f'{which_agent}_agent_p1_ckpt.pt'))
+        agent_p2.save_state_dict(os.path.join(save_dir, f'{which_agent}_agent_p2_ckpt.pt'))
+        now = datetime.now().strftime("%H:%M:%S")
+        print(f'\nckpt save for ep:{episode} at {now}')
 
 end_time = datetime.now().strftime("%H:%M:%S")
 print("End Time =", end_time)
 stop = timeit.default_timer()
 print(f'Training time: {(stop - start) / 3600} hrs for {episode_num} episodes')
-print(f'best_result: {best_result}')
 
 # Close files in the logger and plot the learning curve
 logger.close_files()
 logger.plot('dqn.vs.rule')
 
 # Save model
-agent.save_state_dict(os.path.join(save_dir, f'{which_agent}_agent_landlord.pt'))
+agent_p1.save_state_dict(os.path.join(save_dir, f'{which_agent}_agent_p1.pt'))
+agent_p2.save_state_dict(os.path.join(save_dir, f'{which_agent}_agent_p1.pt'))

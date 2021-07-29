@@ -4,11 +4,11 @@ import torch.nn as nn
 from agents.value_based.utils import disable_gradients
 from utils_global import action_mask
 from agents.common.model import DQN, DuelingDQN, DeepConvNet
-from agents.common.buffers import PrioritizedBuffer, BasicBuffer
+from agents.common.buffers import PrioritizedBuffer, BasicBuffer, NStepPERBuffer, NStepBuffer
 from agents.value_based.dqn_base_agent import DQNBaseAgent
 
 """
-An implementation of PER/Noisy/Dueling/Double dqn Agent
+An implementation of PER, N-step, Noisy, Dueling, Double dqn Agent
 """
 
 
@@ -46,14 +46,17 @@ class PERDQNAgent(DQNBaseAgent):
                  epsilon_eval=0.001,
                  batch_size=32,
                  train_every=1,
-                 replay_memory_size=int(2e4),
+                 replay_memory_size=int(1e5),
                  replay_memory_init_size=1000,
                  hard_update_target_every=1000,
                  loss_type='huber',
                  hidden_size=512,
+                 per=True,
                  double=True,
-                 dueling=False,
-                 noisy=False,
+                 dueling=True,
+                 noisy=True,
+                 use_n_step=True,
+                 n_step=3,
                  clip=True,
                  use_conv=False,
                  device=None):
@@ -77,7 +80,9 @@ class PERDQNAgent(DQNBaseAgent):
                          clip=clip,
                          use_conv=use_conv,
                          device=device)
-
+        self.per = per
+        self.use_n_step = use_n_step
+        self.n_step = n_step
         # initialize online and target networks
         if dueling:
             self.online_net = DuelingDQN(state_shape=self.state_shape, num_actions=self.num_actions,
@@ -99,8 +104,15 @@ class PERDQNAgent(DQNBaseAgent):
         self.optimizer = torch.optim.Adam(self.online_net.parameters(), lr=lr)
 
         # initialize memory buffer
-        self.memory_buffer = PrioritizedBuffer(replay_memory_size, batch_size)
-
+        if self.n_step:
+            if self.per:
+                self.memory_buffer = NStepPERBuffer(replay_memory_size, batch_size, self.n_step, self.gamma)
+            else:
+                self.memory_buffer = NStepBuffer(replay_memory_size, batch_size, self.n_step, self.gamma)
+        elif self.per:
+            self.memory_buffer = PrioritizedBuffer(replay_memory_size, batch_size)
+        else:
+            self.memory_buffer = BasicBuffer(replay_memory_size, batch_size)
         # initialize loss function for network
         if loss_type == 'mse':
             self.criterion = nn.MSELoss(reduction='none')
@@ -164,7 +176,10 @@ class PERDQNAgent(DQNBaseAgent):
 
         # Compute the expected q value y=r+γQθ′(s′,a∗)
         # value = reward + gamma * target_network.predict(next_state)[argmax(local_network.predict(next_state))]
-        expected_q_values = rewards + self.gamma * (1 - dones) * next_q_values
+        if self.use_n_step:
+            expected_q_values = rewards + (self.gamma ** self.n_step) * (1 - dones) * next_q_values
+        else:
+            expected_q_values = rewards + self.gamma * (1 - dones) * next_q_values
         expected_q_values.detach()
 
         # calculate loss and update priorities
@@ -176,9 +191,15 @@ class PERDQNAgent(DQNBaseAgent):
 
         # calculate the loss for every element in the batch, (reduction='none')
         error = self.criterion(expected_q_values, q_values)
-        # calculate importance-weighted (Prioritized Experience Replay) batch loss
-        loss = (error * is_weights).mean()
 
+        if self.per:
+            # update per_double_dqn priorities
+            priorities = torch.abs(error).detach().numpy()
+            self.memory_buffer.update_priorities(indices, priorities)
+            # calculate importance-weighted (Prioritized Experience Replay) batch loss
+            loss = (error * is_weights).mean()
+        else:
+            loss = error.mean()
         self.optimizer.zero_grad()
         # Backpropagate importance-weighted (Prioritized Experience Replay) batch loss
         loss.backward()

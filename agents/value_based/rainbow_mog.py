@@ -11,7 +11,7 @@ from agents.value_based.dqn_base_agent import DQNBaseAgent
 
 class RainbowAgent(DQNBaseAgent):
     """
-    An implementation of rainbow_c21 dqn agent
+    An implementation of rainbow dqn agent
     with double, dueling, noisy, mog_dqn(Mixture of Gaussians) network, multi-step prioritized replay buffer.
 
        Parameters:
@@ -49,14 +49,14 @@ class RainbowAgent(DQNBaseAgent):
                  gamma=0.99,
                  epsilon_start=1.0,
                  epsilon_end=0.05,
-                 epsilon_decay_steps=40000,
+                 epsilon_decay_steps=int(1e5),
                  epsilon_eval=0.001,
                  batch_size=32,
                  train_every=1,
-                 replay_memory_size=int(2e5),
+                 replay_memory_size=int(1e5),
                  replay_memory_init_size=1000,
                  hard_update_target_every=1000,
-                 hidden_size=1024,
+                 hidden_size=512,
                  double=True,
                  dueling=True,
                  noisy=True,
@@ -269,9 +269,6 @@ class RainbowAgent(DQNBaseAgent):
             self.memory_buffer.update_priorities(indices, priorities)
             # calculate importance-weighted (Prioritized Experience Replay) batch loss
             loss = (jtd_loss * is_weights).mean()
-            print(jtd_loss)
-            print(is_weights)
-            print(jtd_loss * is_weights)
         else:
             loss = jtd_loss.mean()
 

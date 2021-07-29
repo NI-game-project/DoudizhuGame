@@ -44,7 +44,7 @@ class DQNBaseAgent:
                  gamma=0.99,
                  epsilon_start=1.0,
                  epsilon_end=0.05,
-                 epsilon_decay_steps=40000,
+                 epsilon_decay_steps=int(1e5),
                  epsilon_eval=0.001,
                  batch_size=32,
                  train_every=1,
@@ -271,6 +271,9 @@ class DQNBaseAgent:
         actions = torch.LongTensor(actions).to(self.device)
         rewards = torch.FloatTensor(rewards).to(self.device)
         dones = torch.FloatTensor(dones).to(self.device)
+        penalty = torch.zeros(self.batch_size, dtype=torch.float)
+        penalty_coef = np.linspace(0.1, 1.0, int(5e4))
+        penalty_coef = penalty_coef[min(self.train_step, int(5e4) - 1)]
 
         self.online_net.train()
         self.target_net.train()
@@ -286,9 +289,12 @@ class DQNBaseAgent:
             else:
                 next_q_values = self.online_net(next_states)
 
+            next_predictions = next_q_values.max(1)[1]
             # Do action mask for q_values of next_state if not done (i.e., set q_values of illegal actions to -inf)
             for i in range(self.batch_size):
                 next_q_values[i] = action_mask(self.num_actions, next_q_values[i], next_legal_actions[i])
+                if next_predictions[i] not in next_legal_actions[i]:
+                    penalty[i] += 0.5
 
             # Select greedy actions a∗ in next state using., a∗=argmaxa′Qθ(s′,a′)
             next_argmax_actions = next_q_values.max(1)[1]
@@ -298,7 +304,7 @@ class DQNBaseAgent:
         # Compute the expected q value y=r+γQθ′(s′,a∗)
         # for double dqn:
         # value = reward + gamma * target_network.predict(next_state)[argmax(local_network.predict(next_state))]
-        expected_q_values = rewards + self.gamma * (1 - dones) * next_q_values
+        expected_q_values = rewards + self.gamma * (1 - dones) * next_q_values - penalty_coef * penalty
         expected_q_values.detach()
 
         loss = self.criterion(q_values, expected_q_values)
