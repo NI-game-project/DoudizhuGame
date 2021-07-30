@@ -185,13 +185,8 @@ class PERDQNAgent(DQNBaseAgent):
             expected_q_values = rewards + self.gamma * (1 - dones) * next_q_values
         expected_q_values.detach()
 
-        # calculate loss and update priorities
-        # an error of a sample is the distance between the Q(s, a) and its target T(S): error=|Q(s,a)−T(S)|
-        # store this error in the agent’s memory along with sample index and update it each learning step.
+        # calculate td-error
         td_error = expected_q_values - q_values
-        priorities = torch.abs(td_error).detach().numpy()
-        self.memory_buffer.update_priorities(indices, priorities)
-
         # calculate the loss for every element in the batch, (reduction='none')
         error = self.criterion(expected_q_values, q_values)
 
