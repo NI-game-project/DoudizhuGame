@@ -131,17 +131,20 @@ class PERDQNAgent(DQNBaseAgent):
         """
 
         # sample a batch of transitions from memory
-        states, legal_actions, actions, rewards, next_states, next_legal_actions, dones, indices, is_weights \
-            = self.memory_buffer.sample()
+        # sample a batch of transitions from memory
+        if self.per:
+            states, legal_actions, actions, rewards, next_states, next_legal_actions, dones, indices, is_weights \
+                = self.memory_buffer.sample()
+            # importance sampling weights
+            is_weights = torch.FloatTensor(is_weights).to(self.device)
+        else:
+            states, legal_actions, actions, rewards, next_states, next_legal_actions, dones = self.memory_buffer.sample()
 
         states = torch.FloatTensor(states).to(self.device)
         next_states = torch.FloatTensor(next_states).to(self.device)
         actions = torch.LongTensor(actions).to(self.device)
         rewards = torch.FloatTensor(rewards).to(self.device)
         dones = torch.FloatTensor(dones).to(self.device)
-
-        # importance sampling weights
-        is_weights = torch.FloatTensor(is_weights).to(self.device)
 
         self.online_net.train()
         self.target_net.train()
